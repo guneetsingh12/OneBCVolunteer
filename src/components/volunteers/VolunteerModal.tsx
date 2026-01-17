@@ -9,7 +9,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Volunteer } from '@/types';
 import { cn } from '@/lib/utils';
-import { lookupRidingFromPostalCode } from '@/data/mockData';
+import { RidingService } from '@/lib/ridingService';
+import { supabase } from '@/lib/supabase';
+import { useToast } from '@/components/ui/use-toast';
 
 const volunteerSchema = z.object({
   first_name: z.string().min(1, 'First name is required').max(50),
@@ -33,6 +35,7 @@ type VolunteerFormData = z.infer<typeof volunteerSchema>;
 interface VolunteerModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
   volunteer: Volunteer | null;
 }
 
@@ -41,12 +44,15 @@ const availabilityTimes = ['Morning', 'Afternoon', 'Evening'];
 const roleInterests = ['Door Knocking', 'Phone Banking', 'Event Volunteering', 'Data Entry', 'Social Media', 'Translation', 'Driving', 'Administrative'];
 const languageOptions = ['English', 'French', 'Mandarin', 'Cantonese', 'Punjabi', 'Hindi', 'Spanish', 'Tagalog', 'Korean', 'Other'];
 
-export function VolunteerModal({ isOpen, onClose, volunteer }: VolunteerModalProps) {
+export function VolunteerModal({ isOpen, onClose, onSuccess, volunteer }: VolunteerModalProps) {
   const [selectedDays, setSelectedDays] = useState<string[]>(volunteer?.availability_days || []);
   const [selectedTimes, setSelectedTimes] = useState<string[]>(volunteer?.availability_times || []);
   const [selectedInterests, setSelectedInterests] = useState<string[]>(volunteer?.role_interest || []);
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>(volunteer?.languages || ['English']);
   const [ridingLookup, setRidingLookup] = useState<{ riding: string; confidence: string } | null>(null);
+  const [isLookingUp, setIsLookingUp] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const { toast } = useToast();
 
   const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm<VolunteerFormData>({
     resolver: zodResolver(volunteerSchema),
@@ -76,51 +82,123 @@ export function VolunteerModal({ isOpen, onClose, volunteer }: VolunteerModalPro
   });
 
   const postalCode = watch('postal_code');
+  const streetAddress = watch('street_address');
+  const city = watch('city');
 
-  const handlePostalCodeBlur = () => {
-    if (postalCode && postalCode.length >= 6) {
-      const result = lookupRidingFromPostalCode(postalCode);
-      setRidingLookup(result);
+  const handleAddressBlur = async () => {
+    if (streetAddress && city) {
+      setIsLookingUp(true);
+      const fullAddress = `${streetAddress}, ${city}`;
+      try {
+        const result = await RidingService.lookupByAddress(fullAddress);
+        setRidingLookup(result);
+      } catch (error) {
+        console.error('Look up failed', error);
+      } finally {
+        setIsLookingUp(false);
+      }
+    }
+  };
+
+  const handlePostalCodeBlur = async () => {
+    // Only lookup by postal code if we haven't found a high confidence result from address yet
+    if (postalCode && postalCode.length >= 6 && ridingLookup?.confidence !== 'high') {
+      setIsLookingUp(true);
+      try {
+        const result = await RidingService.lookupByPostalCode(postalCode);
+        setRidingLookup(result);
+      } catch (error) {
+        console.error('Postal lookup failed', error);
+      } finally {
+        setIsLookingUp(false);
+      }
     }
   };
 
   const toggleDay = (day: string) => {
-    setSelectedDays(prev => 
+    setSelectedDays(prev =>
       prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
     );
   };
 
   const toggleTime = (time: string) => {
-    setSelectedTimes(prev => 
+    setSelectedTimes(prev =>
       prev.includes(time) ? prev.filter(t => t !== time) : [...prev, time]
     );
   };
 
   const toggleInterest = (interest: string) => {
-    setSelectedInterests(prev => 
+    setSelectedInterests(prev =>
       prev.includes(interest) ? prev.filter(i => i !== interest) : [...prev, interest]
     );
   };
 
   const toggleLanguage = (lang: string) => {
-    setSelectedLanguages(prev => 
+    setSelectedLanguages(prev =>
       prev.includes(lang) ? prev.filter(l => l !== lang) : [...prev, lang]
     );
     setValue('languages', selectedLanguages);
   };
 
-  const onSubmit = (data: VolunteerFormData) => {
-    const fullData = {
+  const onSubmit = async (data: VolunteerFormData) => {
+    setIsSaving(true);
+
+    // Prepare the payload matching the database schema
+    const payload = {
       ...data,
       availability_days: selectedDays,
       availability_times: selectedTimes,
       role_interest: selectedInterests,
       languages: selectedLanguages,
-      riding: ridingLookup?.riding || 'Needs Review',
-      riding_confirmed: ridingLookup?.confidence === 'high',
+      riding: ridingLookup?.riding || (volunteer?.riding) || 'Needs Review',
+      riding_confirmed: ridingLookup?.confidence === 'high' || (volunteer?.riding_confirmed) || false,
+      // Ensure we don't overwrite read-only fields or handle missing ones gracefully
+      updated_at: new Date().toISOString(),
     };
-    console.log('Volunteer data:', fullData);
-    onClose();
+
+    try {
+      let error;
+
+      if (volunteer?.id) {
+        // Update existing
+        const result = await supabase
+          .from('volunteers')
+          .update(payload)
+          .eq('id', volunteer.id);
+        error = result.error;
+      } else {
+        // Insert new
+        const result = await supabase
+          .from('volunteers')
+          .insert([{
+            ...payload,
+            status: 'active', // Default status for new volunteers
+            date_signed_up: new Date().toISOString(),
+          }]);
+        error = result.error;
+      }
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: volunteer ? "Volunteer updated successfully." : "Volunteer added successfully.",
+        variant: "default", // or "success" if configured
+      });
+
+      if (onSuccess) onSuccess();
+      onClose();
+
+    } catch (error: any) {
+      console.error('Error saving volunteer:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to save volunteer. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -128,11 +206,11 @@ export function VolunteerModal({ isOpen, onClose, volunteer }: VolunteerModalPro
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div 
+      <div
         className="absolute inset-0 bg-background/80 backdrop-blur-sm"
         onClick={onClose}
       />
-      
+
       {/* Modal */}
       <div className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-card rounded-2xl shadow-xl border border-border animate-scale-in">
         {/* Header */}
@@ -213,7 +291,10 @@ export function VolunteerModal({ isOpen, onClose, volunteer }: VolunteerModalPro
                 <label className="block text-sm font-medium text-foreground mb-2">
                   Street Address
                 </label>
-                <Input {...register('street_address')} />
+                <Input
+                  {...register('street_address')}
+                  onBlur={handleAddressBlur}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">
@@ -221,7 +302,11 @@ export function VolunteerModal({ isOpen, onClose, volunteer }: VolunteerModalPro
                 </label>
                 <div className="relative">
                   <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input {...register('city')} className="pl-10" />
+                  <Input
+                    {...register('city')}
+                    className="pl-10"
+                    onBlur={handleAddressBlur}
+                  />
                 </div>
                 {errors.city && (
                   <p className="text-sm text-destructive mt-1">{errors.city.message}</p>
@@ -231,8 +316,8 @@ export function VolunteerModal({ isOpen, onClose, volunteer }: VolunteerModalPro
                 <label className="block text-sm font-medium text-foreground mb-2">
                   Postal Code *
                 </label>
-                <Input 
-                  {...register('postal_code')} 
+                <Input
+                  {...register('postal_code')}
                   placeholder="V6B 1A1"
                   onBlur={handlePostalCodeBlur}
                 />
@@ -244,11 +329,16 @@ export function VolunteerModal({ isOpen, onClose, volunteer }: VolunteerModalPro
                 <label className="block text-sm font-medium text-foreground mb-2">
                   Detected Riding
                 </label>
-                {ridingLookup ? (
+                {isLookingUp ? (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted text-sm text-muted-foreground animate-pulse">
+                    <span className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    Identifying...
+                  </div>
+                ) : ridingLookup ? (
                   <div className={cn(
                     "flex items-center gap-2 px-3 py-2 rounded-lg border",
-                    ridingLookup.confidence === 'high' 
-                      ? "bg-success/10 border-success/20 text-success" 
+                    ridingLookup.confidence === 'high'
+                      ? "bg-success/10 border-success/20 text-success"
                       : "bg-warning/10 border-warning/20 text-warning"
                   )}>
                     {ridingLookup.confidence !== 'high' && <AlertTriangle className="h-4 w-4" />}
@@ -256,7 +346,7 @@ export function VolunteerModal({ isOpen, onClose, volunteer }: VolunteerModalPro
                   </div>
                 ) : (
                   <div className="px-3 py-2 rounded-lg bg-muted text-sm text-muted-foreground">
-                    Enter postal code to auto-detect
+                    Enter postal code or address to auto-detect
                   </div>
                 )}
               </div>
@@ -338,12 +428,12 @@ export function VolunteerModal({ isOpen, onClose, volunteer }: VolunteerModalPro
               <label className="block text-sm font-medium text-foreground mb-2">
                 Hours per week
               </label>
-              <Input 
-                {...register('hours_per_week', { valueAsNumber: true })} 
-                type="number" 
-                min={1} 
-                max={40} 
-                className="w-32" 
+              <Input
+                {...register('hours_per_week', { valueAsNumber: true })}
+                type="number"
+                min={1}
+                max={40}
+                className="w-32"
               />
             </div>
           </div>
@@ -415,8 +505,8 @@ export function VolunteerModal({ isOpen, onClose, volunteer }: VolunteerModalPro
             <label className="block text-sm font-medium text-foreground mb-2">
               Skills & Notes
             </label>
-            <Textarea 
-              {...register('skills_notes')} 
+            <Textarea
+              {...register('skills_notes')}
               placeholder="Any relevant skills, experience, or notes..."
               rows={3}
             />
@@ -431,7 +521,7 @@ export function VolunteerModal({ isOpen, onClose, volunteer }: VolunteerModalPro
               className="mt-1 rounded border-input"
             />
             <label htmlFor="consent" className="text-sm text-muted-foreground leading-relaxed">
-              This volunteer has provided consent for their information to be stored and used for campaign activities. 
+              This volunteer has provided consent for their information to be stored and used for campaign activities.
               Data will be handled in accordance with Canadian privacy laws (PIPEDA).
             </label>
           </div>
@@ -444,8 +534,8 @@ export function VolunteerModal({ isOpen, onClose, volunteer }: VolunteerModalPro
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" className="bg-gradient-primary">
-              {volunteer ? 'Save Changes' : 'Add Volunteer'}
+            <Button type="submit" className="bg-gradient-primary" disabled={isSaving}>
+              {isSaving ? 'Saving...' : (volunteer ? 'Save Changes' : 'Add Volunteer')}
             </Button>
           </div>
         </form>

@@ -35,6 +35,9 @@ export interface Volunteer {
   // Property intelligence (optional)
   property_value_range?: string;
   housing_type?: 'owned' | 'rented' | 'unknown';
+  external_id?: string;
+  postal_prefix?: string;
+  team_lead_name?: string;
 }
 
 export interface Event {

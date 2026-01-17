@@ -16,6 +16,7 @@ const tabTitles: Record<TabType, { title: string; subtitle: string }> = {
   calendar: { title: 'Calendar', subtitle: 'Schedule and upcoming activities' },
   reports: { title: 'Reports', subtitle: 'Analytics and insights' },
   settings: { title: 'Settings', subtitle: 'Configure your platform' },
+  activity: { title: 'Activity Log', subtitle: 'System-wide audit trail' },
 };
 
 const addButtonLabels: Partial<Record<TabType, string>> = {

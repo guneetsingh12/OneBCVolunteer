@@ -1,11 +1,13 @@
-import { useState } from 'react';
-import { 
-  Search, 
-  Filter, 
-  Download, 
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
+import { useToast } from "@/components/ui/use-toast";
+import {
+  Search,
+  Filter,
+  Download,
   Upload,
-  MoreHorizontal, 
-  Mail, 
+  MoreHorizontal,
+  Mail,
   Phone,
   MapPin,
   CheckCircle2,
@@ -21,28 +23,30 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { mockVolunteers } from '@/data/mockData';
 import { Volunteer } from '@/types';
 import { cn } from '@/lib/utils';
 import { VolunteerModal } from './VolunteerModal';
 import { VolunteerProfileModal } from './VolunteerProfileModal';
 import { CSVImportModal } from './CSVImportModal';
 
-const statusConfig = {
+const statusConfig: any = {
   active: { label: 'Active', className: 'bg-success/10 text-success border-success/20', icon: CheckCircle2 },
   inactive: { label: 'Inactive', className: 'bg-muted text-muted-foreground border-border', icon: Clock },
   pending: { label: 'Pending', className: 'bg-warning/10 text-warning border-warning/20', icon: AlertCircle },
   on_leave: { label: 'On Leave', className: 'bg-info/10 text-info border-info/20', icon: Clock },
 };
 
-const experienceConfig = {
+const experienceConfig: any = {
   new: { label: 'New', className: 'bg-info/10 text-info' },
   some: { label: 'Some Experience', className: 'bg-muted text-muted-foreground' },
   experienced: { label: 'Experienced', className: 'bg-success/10 text-success' },
   veteran: { label: 'Veteran', className: 'bg-primary/10 text-primary' },
 };
-
 export function VolunteerTable() {
+  const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Re-adding missing state
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedRegion, setSelectedRegion] = useState<string>('all');
@@ -52,18 +56,118 @@ export function VolunteerTable() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [selectedVolunteer, setSelectedVolunteer] = useState<Volunteer | null>(null);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const { toast } = useToast();
 
-  const filteredVolunteers = mockVolunteers.filter((v) => {
-    const matchesSearch = 
+  const handleExtractRidings = async () => {
+    const targets = selectedVolunteers.length > 0
+      ? volunteers.filter(v => selectedVolunteers.includes(v.id))
+      : volunteers.filter(v => !v.riding_confirmed || !v.riding); // Default to those needing update
+
+    if (targets.length === 0) {
+      toast({
+        title: "No volunteers selected",
+        description: "Please select volunteers to extract ridings for, or ensure there are volunteers needing updates.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsExtracting(true);
+    let updatedCount = 0;
+
+    toast({
+      title: "Extraction Started",
+      description: `Analyzing addresses for ${targets.length} volunteers...`,
+    });
+
+    for (const volunteer of targets) {
+      // Skip if no address
+      if (!volunteer.street_address || !volunteer.city) continue;
+
+      try {
+        const response = await fetch('http://localhost:3001/extract-riding', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            address: `${volunteer.street_address}, ${volunteer.city}`
+          })
+        });
+
+        if (!response.ok) {
+          console.error('Agent server error');
+          continue;
+        }
+
+        const result = await response.json();
+
+        if (result.success && result.riding) {
+          const { error } = await supabase
+            .from('volunteers')
+            .update({
+              riding: result.riding,
+              riding_confirmed: true, // Confirmed because it's from the official source
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', volunteer.id);
+
+          if (!error) updatedCount++;
+        }
+      } catch (err) {
+        console.error('Extraction failed', err);
+        toast({
+          title: "Agent Connection Failed",
+          description: "Make sure the agent server is running: npm run start:agent",
+          variant: "destructive"
+        });
+        setIsExtracting(false);
+        return;
+      }
+    }
+
+    await fetchVolunteers();
+    setIsExtracting(false);
+
+    toast({
+      title: "Extraction Complete",
+      description: `Successfully updated ridings for ${updatedCount} volunteers.`,
+      variant: updatedCount > 0 ? "default" : "destructive" // Show success style usually
+    });
+  };
+
+  const fetchVolunteers = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('volunteers')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching volunteers:', error);
+    } else {
+      // Map Supabase specific fields back if needed, or rely on type match
+      setVolunteers(data as unknown as Volunteer[]);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchVolunteers();
+  }, []);
+
+  // Update filtered logic to use 'volunteers' state instead of 'mockVolunteers'
+  const filteredVolunteers = volunteers.filter((v) => {
+    // ... same logic
+    const matchesSearch =
       v.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       v.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       v.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      v.riding.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      v.city.toLowerCase().includes(searchQuery.toLowerCase());
-    
+      (v.riding && v.riding.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (v.city && v.city.toLowerCase().includes(searchQuery.toLowerCase()));
+
     const matchesStatus = selectedStatus === 'all' || v.status === selectedStatus;
     const matchesRegion = selectedRegion === 'all' || v.region === selectedRegion;
-    
+
     return matchesSearch && matchesStatus && matchesRegion;
   });
 
@@ -76,7 +180,7 @@ export function VolunteerTable() {
   };
 
   const toggleSelect = (id: string) => {
-    setSelectedVolunteers(prev => 
+    setSelectedVolunteers(prev =>
       prev.includes(id) ? prev.filter(v => v !== id) : [...prev, id]
     );
   };
@@ -93,12 +197,16 @@ export function VolunteerTable() {
     setActionMenuId(null);
   };
 
-  const regions = [...new Set(mockVolunteers.map(v => v.region))];
+  // Derive regions from actual data
+  const regions = [...new Set(volunteers.map(v => v.region).filter(Boolean))]; // Filter nulls
 
+
+  // ... Update renders to use filteredVolunteers
   return (
     <div className="space-y-4 animate-fade-in">
       {/* Toolbar */}
       <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+        {/* Same Toolbar content as before, but using volunteers.length where appropriate */}
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
           <div className="relative flex-1 lg:w-72">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -109,7 +217,7 @@ export function VolunteerTable() {
               className="pl-10 bg-card"
             />
           </div>
-          
+
           <div className="relative">
             <select
               value={selectedStatus}
@@ -146,9 +254,9 @@ export function VolunteerTable() {
               {selectedVolunteers.length} selected
             </span>
           )}
-          <Button 
-            variant="outline" 
-            size="sm" 
+          <Button
+            variant="outline"
+            size="sm"
             className="gap-2"
             onClick={() => setIsImportModalOpen(true)}
           >
@@ -159,9 +267,10 @@ export function VolunteerTable() {
             <Download className="h-4 w-4" />
             <span className="hidden sm:inline">Export</span>
           </Button>
-          <Button 
-            size="sm" 
-            className="gap-2 bg-gradient-primary"
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-2"
             onClick={() => {
               setSelectedVolunteer(null);
               setIsAddModalOpen(true);
@@ -170,6 +279,21 @@ export function VolunteerTable() {
             <UserPlus className="h-4 w-4" />
             <span className="hidden sm:inline">Add Volunteer</span>
           </Button>
+          <Button
+            size="sm"
+            className="gap-2 bg-gradient-primary"
+            onClick={handleExtractRidings}
+            disabled={isExtracting}
+          >
+            {isExtracting ? (
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+            ) : (
+              <MapPin className="h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">
+              {isExtracting ? 'Extracting...' : 'Extract Riding'}
+            </span>
+          </Button>
         </div>
       </div>
 
@@ -177,19 +301,19 @@ export function VolunteerTable() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-card rounded-lg p-4 border border-border/50">
           <p className="text-sm text-muted-foreground">Total</p>
-          <p className="text-2xl font-bold text-foreground">{mockVolunteers.length}</p>
+          <p className="text-2xl font-bold text-foreground">{volunteers.length}</p>
         </div>
         <div className="bg-success/5 rounded-lg p-4 border border-success/20">
           <p className="text-sm text-success">Active</p>
-          <p className="text-2xl font-bold text-success">{mockVolunteers.filter(v => v.status === 'active').length}</p>
+          <p className="text-2xl font-bold text-success">{volunteers.filter(v => v.status === 'active').length}</p>
         </div>
         <div className="bg-warning/5 rounded-lg p-4 border border-warning/20">
           <p className="text-sm text-warning">Pending Review</p>
-          <p className="text-2xl font-bold text-warning">{mockVolunteers.filter(v => v.status === 'pending').length}</p>
+          <p className="text-2xl font-bold text-warning">{volunteers.filter(v => v.status === 'pending').length}</p>
         </div>
         <div className="bg-info/5 rounded-lg p-4 border border-info/20">
           <p className="text-sm text-info">Needs Verification</p>
-          <p className="text-2xl font-bold text-info">{mockVolunteers.filter(v => !v.riding_confirmed).length}</p>
+          <p className="text-2xl font-bold text-info">{volunteers.filter(v => !v.riding_confirmed).length}</p>
         </div>
       </div>
 
@@ -207,145 +331,112 @@ export function VolunteerTable() {
                     className="rounded border-input"
                   />
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Volunteer
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Contact
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Riding
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Experience
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Activity
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Actions
-                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Volunteer</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contact</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Riding</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Experience</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Activity</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filteredVolunteers.map((volunteer) => (
-                <tr 
-                  key={volunteer.id} 
-                  className="hover:bg-muted/30 transition-colors group"
-                >
-                  <td className="px-4 py-4">
-                    <input
-                      type="checkbox"
-                      checked={selectedVolunteers.includes(volunteer.id)}
-                      onChange={() => toggleSelect(volunteer.id)}
-                      className="rounded border-input"
-                    />
-                  </td>
-                  <td className="px-4 py-4">
-                    <div 
-                      className="flex items-center gap-3 cursor-pointer"
-                      onClick={() => openProfile(volunteer)}
-                    >
-                      <div className="h-10 w-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground font-semibold text-sm">
-                        {volunteer.first_name[0]}{volunteer.last_name[0]}
-                      </div>
-                      <div>
-                        <p className="font-medium text-foreground group-hover:text-primary transition-colors">
-                          {volunteer.first_name} {volunteer.last_name}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          Joined {new Date(volunteer.date_signed_up).toLocaleDateString()}
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 text-sm text-foreground">
-                        <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="truncate max-w-[180px]">{volunteer.email}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Phone className="h-3.5 w-3.5" />
-                        {volunteer.phone}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{volunteer.riding}</p>
-                        <p className="text-xs text-muted-foreground">{volunteer.city}</p>
-                      </div>
-                      {!volunteer.riding_confirmed && (
-                        <AlertTriangle className="h-4 w-4 text-warning" />
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-4">
-                    <Badge 
-                      variant="outline" 
-                      className={cn("gap-1", statusConfig[volunteer.status].className)}
-                    >
-                      {statusConfig[volunteer.status].label}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-4">
-                    <span className={cn(
-                      "px-2.5 py-1 rounded-full text-xs font-medium",
-                      experienceConfig[volunteer.experience_level].className
-                    )}>
-                      {experienceConfig[volunteer.experience_level].label}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="text-sm">
-                      <p className="font-medium text-foreground">{volunteer.total_hours}h / {volunteer.total_shifts} shifts</p>
-                      <p className="text-muted-foreground">{volunteer.total_doors_or_dials.toLocaleString()} contacts</p>
-                    </div>
-                  </td>
-                  <td className="px-4 py-4 text-right">
-                    <div className="relative">
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => setActionMenuId(actionMenuId === volunteer.id ? null : volunteer.id)}
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                      
-                      {actionMenuId === volunteer.id && (
-                        <div className="absolute right-0 top-full mt-1 w-40 bg-card rounded-lg shadow-xl border border-border py-1 z-50 animate-scale-in">
-                          <button
-                            onClick={() => openProfile(volunteer)}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
-                          >
-                            <Eye className="h-4 w-4" />
-                            View Profile
-                          </button>
-                          <button
-                            onClick={() => openEdit(volunteer)}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                            Edit
-                          </button>
-                          <button
-                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Delete
-                          </button>
+              {loading ? (
+                <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">Loading volunteers...</td></tr>
+              ) : filteredVolunteers.length === 0 ? (
+                <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No volunteers found.</td></tr>
+              ) : (
+                filteredVolunteers.map((volunteer) => (
+                  <tr key={volunteer.id} className="hover:bg-muted/30 transition-colors group">
+                    <td className="px-4 py-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedVolunteers.includes(volunteer.id)}
+                        onChange={() => toggleSelect(volunteer.id)}
+                        className="rounded border-input"
+                      />
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-3 cursor-pointer" onClick={() => openProfile(volunteer)}>
+                        <div className="h-10 w-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground font-semibold text-sm">
+                          {volunteer.first_name[0]}{volunteer.last_name[0]}
                         </div>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        <div>
+                          <p className="font-medium text-foreground group-hover:text-primary transition-colors">
+                            {volunteer.first_name} {volunteer.last_name}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            Joined {new Date(volunteer.date_signed_up).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 text-sm text-foreground">
+                          <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="truncate max-w-[180px]">{volunteer.email}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Phone className="h-3.5 w-3.5" />
+                          {volunteer.phone}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <p className="text-sm font-medium text-foreground">{volunteer.riding}</p>
+                          <p className="text-xs text-muted-foreground">{volunteer.city}</p>
+                        </div>
+                        {!volunteer.riding_confirmed && (
+                          <AlertTriangle className="h-4 w-4 text-warning" />
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4">
+                      <Badge variant="outline" className={cn("gap-1", statusConfig[volunteer.status]?.className || statusConfig.active.className)}>
+                        {statusConfig[volunteer.status]?.label || volunteer.status}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className={cn(
+                        "px-2.5 py-1 rounded-full text-xs font-medium",
+                        (experienceConfig[volunteer.experience_level] || experienceConfig.new).className
+                      )}>
+                        {(experienceConfig[volunteer.experience_level] || experienceConfig.new).label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="text-sm">
+                        <p className="font-medium text-foreground">{volunteer.total_hours || 0}h / {volunteer.total_shifts || 0} shifts</p>
+                        <p className="text-muted-foreground">{(volunteer.total_doors_or_dials || 0).toLocaleString()} contacts</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <div className="relative">
+                        <Button variant="ghost" size="icon" onClick={() => setActionMenuId(actionMenuId === volunteer.id ? null : volunteer.id)}>
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                        {actionMenuId === volunteer.id && (
+                          <div className="absolute right-0 top-full mt-1 w-40 bg-card rounded-lg shadow-xl border border-border py-1 z-50 animate-scale-in">
+                            <button onClick={() => openProfile(volunteer)} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                              <Eye className="h-4 w-4" /> View Profile
+                            </button>
+                            <button onClick={() => openEdit(volunteer)} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                              <Edit2 className="h-4 w-4" /> Edit
+                            </button>
+                            <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors">
+                              <Trash2 className="h-4 w-4" /> Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -353,32 +444,26 @@ export function VolunteerTable() {
         {/* Pagination */}
         <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/30">
           <p className="text-sm text-muted-foreground">
-            Showing {filteredVolunteers.length} of {mockVolunteers.length} volunteers
+            Showing {filteredVolunteers.length} of {volunteers.length} volunteers
           </p>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" disabled>
-              Previous
-            </Button>
-            <Button variant="outline" size="sm" className="bg-primary text-primary-foreground">
-              1
-            </Button>
-            <Button variant="outline" size="sm">
-              Next
-            </Button>
+            <Button variant="outline" size="sm" disabled>Previous</Button>
+            <Button variant="outline" size="sm" className="bg-primary text-primary-foreground">1</Button>
+            <Button variant="outline" size="sm">Next</Button>
           </div>
         </div>
       </div>
 
-      {/* Modals */}
-      <VolunteerModal 
-        isOpen={isAddModalOpen} 
+      <VolunteerModal
+        isOpen={isAddModalOpen}
         onClose={() => {
           setIsAddModalOpen(false);
           setSelectedVolunteer(null);
         }}
+        onSuccess={fetchVolunteers}
         volunteer={selectedVolunteer}
       />
-      
+
       <VolunteerProfileModal
         isOpen={isProfileModalOpen}
         onClose={() => {
@@ -391,6 +476,10 @@ export function VolunteerTable() {
       <CSVImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
+        onSuccess={() => {
+          fetchVolunteers();
+          setIsImportModalOpen(false);
+        }}
       />
     </div>
   );

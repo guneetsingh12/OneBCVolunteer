@@ -1,11 +1,11 @@
-import { 
-  X, 
-  Mail, 
-  Phone, 
-  MapPin, 
-  Calendar, 
-  Clock, 
-  DoorOpen, 
+import {
+  X,
+  Mail,
+  Phone,
+  MapPin,
+  Calendar,
+  Clock,
+  DoorOpen,
   Car,
   Languages,
   AlertTriangle,
@@ -36,29 +36,32 @@ const statusConfig = {
 export function VolunteerProfileModal({ isOpen, onClose, volunteer }: VolunteerProfileModalProps) {
   if (!isOpen || !volunteer) return null;
 
-  const StatusIcon = statusConfig[volunteer.status].icon;
+  /* Safe status config lookup */
+  const statusKey = (volunteer.status || 'active').toLowerCase();
+  const config = statusConfig[statusKey as keyof typeof statusConfig] || statusConfig.active;
+  const StatusIcon = config.icon;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div 
+      <div
         className="absolute inset-0 bg-background/80 backdrop-blur-sm"
         onClick={onClose}
       />
-      
+
       {/* Modal */}
       <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-card rounded-2xl shadow-xl border border-border animate-scale-in">
         {/* Header with gradient */}
         <div className="relative h-32 bg-gradient-hero rounded-t-2xl">
-          <Button 
-            variant="ghost" 
-            size="icon" 
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={onClose}
             className="absolute top-4 right-4 text-primary-foreground/80 hover:text-primary-foreground hover:bg-white/10"
           >
             <X className="h-5 w-5" />
           </Button>
-          
+
           {/* Avatar */}
           <div className="absolute -bottom-10 left-6">
             <div className="h-20 w-20 rounded-2xl bg-gradient-accent flex items-center justify-center text-accent-foreground text-2xl font-bold shadow-lg border-4 border-card">
@@ -78,12 +81,12 @@ export function VolunteerProfileModal({ isOpen, onClose, volunteer }: VolunteerP
               <p className="text-muted-foreground">{volunteer.riding}</p>
             </div>
             <div className="flex items-center gap-2">
-              <Badge 
-                variant="outline" 
-                className={cn("gap-1", statusConfig[volunteer.status].className)}
+              <Badge
+                variant="outline"
+                className={cn("gap-1", config.className)}
               >
                 <StatusIcon className="h-3 w-3" />
-                {statusConfig[volunteer.status].label}
+                {config.label}
               </Badge>
             </div>
           </div>
@@ -147,26 +150,26 @@ export function VolunteerProfileModal({ isOpen, onClose, volunteer }: VolunteerP
                   </div>
                 </div>
               </div>
-              
+
               <div className="space-y-3">
                 <h4 className="text-sm font-semibold text-foreground uppercase tracking-wider">Availability</h4>
                 <div className="space-y-2">
                   <div className="flex flex-wrap gap-1">
-                    {volunteer.availability_days.map(day => (
+                    {(volunteer.availability_days || []).map(day => (
                       <span key={day} className="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full">
                         {day.slice(0, 3)}
                       </span>
                     ))}
                   </div>
                   <div className="flex flex-wrap gap-1">
-                    {volunteer.availability_times.map(time => (
+                    {(volunteer.availability_times || []).map(time => (
                       <span key={time} className="px-2 py-0.5 bg-secondary/10 text-secondary text-xs rounded-full">
                         {time}
                       </span>
                     ))}
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    {volunteer.hours_per_week} hours/week
+                    {volunteer.hours_per_week || 0} hours/week
                   </p>
                 </div>
               </div>
@@ -176,7 +179,7 @@ export function VolunteerProfileModal({ isOpen, onClose, volunteer }: VolunteerP
               <div className="space-y-3">
                 <h4 className="text-sm font-semibold text-foreground uppercase tracking-wider">Skills & Interests</h4>
                 <div className="flex flex-wrap gap-1">
-                  {volunteer.role_interest.map(role => (
+                  {(volunteer.role_interest || []).map(role => (
                     <span key={role} className="px-2 py-1 bg-accent/10 text-accent text-xs rounded-lg">
                       {role}
                     </span>
@@ -184,7 +187,7 @@ export function VolunteerProfileModal({ isOpen, onClose, volunteer }: VolunteerP
                 </div>
                 <div className="flex items-center gap-2 text-sm">
                   <Languages className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-foreground">{volunteer.languages.join(', ')}</span>
+                  <span className="text-foreground">{(volunteer.languages || []).join(', ')}</span>
                 </div>
                 {volunteer.has_vehicle && (
                   <div className="flex items-center gap-2 text-sm text-success">
@@ -214,22 +217,20 @@ export function VolunteerProfileModal({ isOpen, onClose, volunteer }: VolunteerP
               </div>
             </div>
 
-            {/* Notes */}
-            {volunteer.notes && (
-              <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-foreground uppercase tracking-wider">Notes</h4>
-                <p className="text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">
-                  {volunteer.notes}
-                </p>
-              </div>
-            )}
+            {/* Notes - Always render */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold text-foreground uppercase tracking-wider">Notes</h4>
+              <p className="text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">
+                {volunteer.notes || "No notes provided."}
+              </p>
+            </div>
 
             {/* Risk Flags */}
-            {volunteer.risk_flags.length > 0 && (
+            {(volunteer.risk_flags || []).length > 0 && (
               <div className="space-y-3">
                 <h4 className="text-sm font-semibold text-foreground uppercase tracking-wider">Flags</h4>
                 <div className="flex flex-wrap gap-2">
-                  {volunteer.risk_flags.map(flag => (
+                  {(volunteer.risk_flags || []).map(flag => (
                     <Badge key={flag} variant="outline" className="bg-warning/10 text-warning border-warning/20 gap-1">
                       <AlertTriangle className="h-3 w-3" />
                       {flag.replace('_', ' ')}
@@ -255,27 +256,23 @@ export function VolunteerProfileModal({ isOpen, onClose, volunteer }: VolunteerP
               </div>
             )}
 
-            {/* Property Intelligence (if available) */}
-            {volunteer.property_value_range && (
-              <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-foreground uppercase tracking-wider">Property Intelligence</h4>
-                <div className="flex gap-4 text-sm">
-                  <div className="px-3 py-2 bg-muted rounded-lg">
-                    <p className="text-xs text-muted-foreground">Est. Value Range</p>
-                    <p className="font-medium text-foreground">{volunteer.property_value_range}</p>
-                  </div>
-                  {volunteer.housing_type && (
-                    <div className="px-3 py-2 bg-muted rounded-lg">
-                      <p className="text-xs text-muted-foreground">Housing Type</p>
-                      <p className="font-medium text-foreground capitalize">{volunteer.housing_type}</p>
-                    </div>
-                  )}
+            {/* Property Intelligence - Always render */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold text-foreground uppercase tracking-wider">Property Intelligence</h4>
+              <div className="flex gap-4 text-sm">
+                <div className="px-3 py-2 bg-muted rounded-lg">
+                  <p className="text-xs text-muted-foreground">Est. Value Range</p>
+                  <p className="font-medium text-foreground">{volunteer.property_value_range || "N/A"}</p>
                 </div>
-                <p className="text-xs text-muted-foreground italic">
-                  * Property data is for strategic planning purposes only. Source: BC Assessment
-                </p>
+                <div className="px-3 py-2 bg-muted rounded-lg">
+                  <p className="text-xs text-muted-foreground">Housing Type</p>
+                  <p className="font-medium text-foreground capitalize">{volunteer.housing_type || "Unknown"}</p>
+                </div>
               </div>
-            )}
+              <p className="text-xs text-muted-foreground italic">
+                * Property data is for strategic planning purposes only. Source: BC Assessment
+              </p>
+            </div>
           </div>
         </div>
       </div>
