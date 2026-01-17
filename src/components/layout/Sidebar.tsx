@@ -9,7 +9,9 @@ import {
   LogOut,
   Vote,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Activity,
+  Sparkles
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TabType } from '@/types';
@@ -27,6 +29,7 @@ const navItems = [
   { id: 'map' as TabType, label: 'Riding Map', icon: Map },
   { id: 'calendar' as TabType, label: 'Calendar', icon: CalendarDays },
   { id: 'reports' as TabType, label: 'Reports', icon: BarChart3 },
+  { id: 'activity' as TabType, label: 'Activity Log', icon: Activity },
   { id: 'settings' as TabType, label: 'Settings', icon: Settings },
 ];
 
@@ -41,20 +44,21 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       )}
     >
       {/* Logo */}
-      <div className="flex items-center gap-3 px-6 py-6 border-b border-sidebar-border">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
-          <Vote className="h-5 w-5" />
+      <div className="flex items-center gap-3 px-5 py-5 border-b border-sidebar-border">
+        <div className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-accent shadow-accent">
+          <Vote className="h-5 w-5 text-sidebar-primary-foreground" />
+          <Sparkles className="absolute -top-1 -right-1 h-3.5 w-3.5 text-sidebar-primary animate-pulse-slow" />
         </div>
         {!collapsed && (
           <div className="animate-fade-in">
-            <h1 className="text-lg font-bold text-sidebar-foreground font-display">EngageBC</h1>
-            <p className="text-xs text-sidebar-foreground/60">Political Operations</p>
+            <h1 className="text-lg font-bold text-sidebar-foreground">BC Connect</h1>
+            <p className="text-xs text-sidebar-foreground/50">Political Operations</p>
           </div>
         )}
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+      <nav className="flex-1 px-3 py-5 space-y-1 overflow-y-auto scrollbar-thin">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -64,13 +68,19 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
               key={item.id}
               onClick={() => onTabChange(item.id)}
               className={cn(
-                "nav-link w-full",
+                "nav-link w-full group relative",
                 isActive && "nav-link-active"
               )}
             >
-              <Icon className="h-5 w-5 shrink-0" />
+              <Icon className={cn(
+                "h-5 w-5 shrink-0 transition-transform",
+                isActive && "scale-110"
+              )} />
               {!collapsed && (
                 <span className="animate-fade-in">{item.label}</span>
+              )}
+              {isActive && !collapsed && (
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-sidebar-primary rounded-r-full" />
               )}
             </button>
           );
@@ -80,28 +90,31 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       {/* Collapse Toggle */}
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="absolute -right-3 top-20 flex h-6 w-6 items-center justify-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground shadow-lg hover:scale-110 transition-transform"
+        className="absolute -right-3 top-20 flex h-6 w-6 items-center justify-center rounded-full bg-gradient-accent text-sidebar-primary-foreground shadow-lg hover:scale-110 transition-all duration-200 z-50"
       >
-        {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
       </button>
 
       {/* User Section */}
-      <div className="border-t border-sidebar-border px-4 py-4">
+      <div className="border-t border-sidebar-border px-3 py-4">
         <div className={cn(
           "flex items-center gap-3",
           collapsed && "justify-center"
         )}>
-          <div className="h-10 w-10 rounded-full bg-sidebar-accent flex items-center justify-center text-sidebar-accent-foreground font-medium">
-            DR
+          <div className="relative">
+            <div className="h-10 w-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground font-semibold text-sm">
+              DR
+            </div>
+            <div className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-success border-2 border-sidebar" />
           </div>
           {!collapsed && (
-            <div className="flex-1 animate-fade-in">
-              <p className="text-sm font-medium text-sidebar-foreground">Director</p>
-              <p className="text-xs text-sidebar-foreground/60">Operations Lead</p>
+            <div className="flex-1 animate-fade-in min-w-0">
+              <p className="text-sm font-medium text-sidebar-foreground truncate">Director</p>
+              <p className="text-xs text-sidebar-foreground/50 truncate">Operations Lead</p>
             </div>
           )}
           {!collapsed && (
-            <button className="p-2 rounded-lg hover:bg-sidebar-accent text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors">
+            <button className="p-2 rounded-lg hover:bg-sidebar-accent text-sidebar-foreground/50 hover:text-sidebar-foreground transition-colors">
               <LogOut className="h-4 w-4" />
             </button>
           )}
