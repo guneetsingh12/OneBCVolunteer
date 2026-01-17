@@ -8,6 +8,7 @@ import { RidingMap } from '@/components/map/RidingMap';
 import { CalendarView } from '@/components/calendar/CalendarView';
 import { ReportsView } from '@/components/reports/ReportsView';
 import { SettingsView } from '@/components/settings/SettingsView';
+import { ActivityLogView } from '@/components/activity/ActivityLogView';
 import { TabType } from '@/types';
 
 const Index = () => {
@@ -15,7 +16,6 @@ const Index = () => {
 
   const handleAddNew = () => {
     console.log('Add new:', activeTab);
-    // TODO: Open modal for adding new volunteer/event
   };
 
   const renderContent = () => {
@@ -32,6 +32,8 @@ const Index = () => {
         return <CalendarView />;
       case 'reports':
         return <ReportsView />;
+      case 'activity':
+        return <ActivityLogView />;
       case 'settings':
         return <SettingsView />;
       default:
