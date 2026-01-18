@@ -108,9 +108,8 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
     let duplicates = 0;
     const errors: CSVImportError[] = [];
 
-    // Import Supabase lazily to avoid circular dependencies issues if any
+    // Import Supabase
     const { supabase } = await import('@/lib/supabase');
-    const { RidingService } = await import('@/lib/ridingService');
 
     // Helper to get value by mapped column name
     const getValue = (row: string[], colName: string) => {
@@ -166,23 +165,17 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
         const streetAddress = getMappedValue(row, ['Street Address', 'Street_Address', 'Address']);
         const city = getMappedValue(row, ['City']);
 
-        let ridingName = getMappedValue(row, ['Riding']);
-        let ridingId = null;
-        let ridingConfirmed = false;
-
-        // Simple Logic for Riding ID if we had a Ridings table populated
-        // For now we will insert the TEXT of the riding if mapped, or try to lookup
-
-        if (!ridingName || ridingName === '' || ridingName.includes('Needs Review')) {
-          // Try auto-lookup
-          if (streetAddress && city) {
-            const lookup = await RidingService.lookupByAddress(`${streetAddress}, ${city}`);
-            if (lookup.confidence !== 'none') ridingName = lookup.riding;
-          } else if (postalCode) {
-            const lookup = await RidingService.lookupByPostalCode(postalCode);
-            if (lookup.confidence !== 'none') ridingName = lookup.riding;
-          }
-        }
+        // Get riding value from CSV - do NOT auto-lookup
+        // Riding extraction is handled via the "Extract Riding" button which uses the bot agent
+        const csvRiding = getMappedValue(row, ['Riding']);
+        
+        // Only use riding if it looks like a proper electoral district (not just a city name)
+        // Proper format example: "West Vancouver-Capilano (WVC)"
+        const isValidRiding = csvRiding && 
+          csvRiding.includes('-') && 
+          (csvRiding.includes('(') || csvRiding.length > 20);
+        
+        const ridingName = isValidRiding ? csvRiding : null;
 
         // Date parsing
         const dateStr = getMappedValue(row, ['Date_Signed_Up', 'Date Signed Up']);
@@ -204,8 +197,8 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
           postal_code: postalCode,
           street_address: streetAddress,
           region: getMappedValue(row, ['Region']),
-          riding: ridingName,
-          riding_confirmed: !!ridingName && !ridingName.includes('Needs Review'),
+          riding: ridingName || null,
+          riding_confirmed: !!ridingName,
           preferred_contact: (getMappedValue(row, ['Preferred_Contact', 'Preferred Contact']).toLowerCase()) || 'email',
           languages: getMappedValue(row, ['Languages']) ? getMappedValue(row, ['Languages']).split(',').map(s => s.trim()) : [],
           status: getMappedValue(row, ['Status']).toLowerCase() || 'active',

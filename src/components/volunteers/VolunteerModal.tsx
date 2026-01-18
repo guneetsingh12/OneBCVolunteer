@@ -170,11 +170,11 @@ export function VolunteerModal({ isOpen, onClose, onSuccess, volunteer }: Volunt
         // Insert new
         const result = await supabase
           .from('volunteers')
-          .insert([{
+          .insert({
             ...payload,
             status: 'active', // Default status for new volunteers
             date_signed_up: new Date().toISOString(),
-          }]);
+          });
         error = result.error;
       }
 
