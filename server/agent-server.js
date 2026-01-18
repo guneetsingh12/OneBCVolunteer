@@ -29,124 +29,204 @@ app.post('/extract-riding', async (req, res) => {
 
     console.log(`[Agent] Starting extraction for: ${address}`);
     let context = null;
+    let page = null;
 
     try {
-        // Launch browser if not running. 
-        // Note: User wants to SEE it. So headless: false.
+        // Launch browser if not running
         if (!browser || !browser.isConnected()) {
+            console.log('[Agent] Launching browser...');
             browser = await chromium.launch({
                 headless: false,
-                slowMo: 50, // Slow down so user can see what's happening
-                args: ['--start-maximized'] // Optional
+                slowMo: 100, // Slow down for visibility
+                args: ['--start-maximized']
             });
         }
 
-        context = await browser.newContext();
-        const page = await context.newPage();
+        context = await browser.newContext({
+            viewport: { width: 1920, height: 1080 }
+        });
+        page = await context.newPage();
 
         console.log('[Agent] Navigating to Elections BC...');
-        await page.goto('https://mydistrict.elections.bc.ca/');
+        await page.goto('https://mydistrict.elections.bc.ca/', {
+            waitUntil: 'networkidle',
+            timeout: 30000
+        });
 
-        // Defensive Waiting
-        await page.waitForLoadState('networkidle');
+        // Wait for the page to fully load (it's a React app)
+        await page.waitForTimeout(2000);
 
-        // Strategy 1: Look for common search inputs
-        // The site likely has an input for address.
-        // I'll look for input[placeholder*="address"] or input[type="text"]
-        // Since I can't inspect, I'll try a generic reliable selector or assume it's the main input.
+        console.log('[Agent] Looking for address input...');
 
-        // Attempting to identify input
+        // Try multiple strategies to find the input
         const inputSelectors = [
-            'input[placeholder*="address" i]',
-            'input[placeholder*="Address" i]',
-            'input[aria-label*="address" i]',
+            'input[type="text"]',
             'input[type="search"]',
-            '#address-input', // Common ID guess
-            'input.search-input'
+            'input[placeholder*="address" i]',
+            'input[aria-label*="address" i]',
+            '#address-input',
+            'input.search-input',
+            'input'
         ];
 
         let inputLocator = null;
         for (const selector of inputSelectors) {
-            if (await page.locator(selector).count() > 0) {
+            const count = await page.locator(selector).count();
+            if (count > 0) {
                 inputLocator = page.locator(selector).first();
+                console.log(`[Agent] Found input using selector: ${selector}`);
                 break;
             }
         }
 
-        // Fallback: Just get the first text input if it seems like a search page
         if (!inputLocator) {
-            inputLocator = page.locator('input[type="text"]').first();
+            throw new Error('Could not find address search input on the page');
         }
 
-        if (!inputLocator) throw new Error('Could not find address search input');
+        // Wait for input to be visible and enabled
+        await inputLocator.waitFor({ state: 'visible', timeout: 10000 });
 
         console.log('[Agent] Typing address...');
-        await inputLocator.fill(address);
-        // Wait for autocomplete? Usually 500ms
-        await page.waitForTimeout(1000); // Wait for suggestions
+        await inputLocator.click();
+        await inputLocator.fill('');
+        await inputLocator.type(address, { delay: 50 });
 
-        // Press Enter to search
-        await inputLocator.press('Enter');
+        // Wait for autocomplete suggestions to appear
+        console.log('[Agent] Waiting for autocomplete suggestions...');
+        await page.waitForTimeout(2000);
 
-        // Wait for result
-        // Text to look for: "Your electoral district for the 2024 Provincial Election will be:"
+        console.log('[Agent] Looking for autocomplete suggestions...');
+
+        // Try to find and click the first autocomplete suggestion
+        const suggestionSelectors = [
+            '[role="option"]',
+            '[class*="suggestion"]',
+            '[class*="autocomplete"] li',
+            '[class*="dropdown"] li',
+            'li[tabindex]',
+            'div[role="option"]'
+        ];
+
+        let suggestionClicked = false;
+        for (const selector of suggestionSelectors) {
+            const count = await page.locator(selector).count();
+            if (count > 0) {
+                console.log(`[Agent] Found ${count} suggestions using selector: ${selector}`);
+                // Click the first suggestion
+                await page.locator(selector).first().click();
+                suggestionClicked = true;
+                console.log('[Agent] Clicked first suggestion');
+                break;
+            }
+        }
+
+        if (!suggestionClicked) {
+            console.log('[Agent] No suggestions found, trying Enter key...');
+            await inputLocator.press('Enter');
+        }
+
+        // Wait for navigation or results
+        await page.waitForTimeout(3000);
+
         console.log('[Agent] Waiting for results...');
 
-        // We wait for the specific text header that indicates a result
-        await page.waitForSelector('text=Your electoral district', { timeout: 10000 });
+        // Try multiple selectors for the result
+        const resultSelectors = [
+            'text=Your electoral district',
+            'text=electoral district',
+            'text=Provincial Election',
+            '[class*="result"]',
+            '[class*="district"]'
+        ];
 
-        // Now extract the riding name. It's usually near this text.
-        // I'll grab the text content of the page or specific container and parse it.
-        // Or finds the element with that text, and get the next sibling or look inside the container.
+        let resultFound = false;
+        let resultLocator = null;
 
-        // Let's get the text of the container that has this text
-        // "Your electoral district for the 2024 Provincial Election will be:\n\nVancouver-Point Grey (VNP)"
-        const resultLocator = page.locator('text=Your electoral district').first();
+        for (const selector of resultSelectors) {
+            try {
+                await page.waitForSelector(selector, { timeout: 5000 });
+                resultLocator = page.locator(selector).first();
+                console.log(`[Agent] Found result using selector: ${selector}`);
+                resultFound = true;
+                break;
+            } catch (e) {
+                console.log(`[Agent] Selector ${selector} not found, trying next...`);
+            }
+        }
 
-        // Ideally, the parent container has the full text.
-        // Let's get the parent's text.
-        // Or execute JS to find the district name which typically follows the label.
+        if (!resultFound) {
+            // Take a screenshot for debugging
+            await page.screenshot({ path: '/tmp/bc-elections-debug.png' });
+            throw new Error('Could not find results on the page. Screenshot saved to /tmp/bc-elections-debug.png');
+        }
+
+        // Extract the riding name
+        console.log('[Agent] Extracting riding name...');
 
         const textContext = await resultLocator.evaluate(el => {
-            // Traverse up to a container that holds both the label and the value
-            const container = el.closest('div') || el.parentElement;
-            return container ? container.innerText : el.innerText;
+            // Get the parent container
+            let container = el;
+            for (let i = 0; i < 5; i++) {
+                if (container.parentElement) {
+                    container = container.parentElement;
+                }
+            }
+            return container.innerText;
         });
 
         console.log(`[Agent] Raw Result Text: ${textContext}`);
 
-        // Parsing logic
-        // Expected: "Your electoral district ... will be:\n\n<Riding Name>"
-        // We can assume the riding name is the line after the label, or just extract based on known riding names?
-        // Let's split by newline and find the meaningful line.
-
+        // Parse the riding name
         const lines = textContext.split('\n').map(l => l.trim()).filter(l => l);
-        // Find the line index with "Your electoral district"
-        const labelIndex = lines.findIndex(l => l.includes('Your electoral district'));
 
         let ridingName = '';
+
+        // Look for the line after "Your electoral district"
+        const labelIndex = lines.findIndex(l => l.includes('Your electoral district') || l.includes('electoral district'));
+
         if (labelIndex !== -1 && lines[labelIndex + 1]) {
             ridingName = lines[labelIndex + 1];
         } else {
-            // Fallback: look for generic riding name pattern?
-            // Or maybe it's in the same line?
-            ridingName = textContext.replace(/Your electoral district.*will be:/is, '').trim();
+            // Fallback: Look for a line that looks like a riding name (contains parentheses with abbreviation)
+            const ridingLine = lines.find(l => /\([A-Z]{3}\)/.test(l));
+            if (ridingLine) {
+                ridingName = ridingLine;
+            } else {
+                // Last resort: just get all text after the label
+                ridingName = textContext.replace(/.*Your electoral district.*will be:?\s*/is, '').trim();
+            }
         }
-
-        // Clean up riding name (remove abbreviations like (VNP) if user wants pure name? USER said: "Your electoral district... Vancouver-Point Grey (VNP) and paste it into...")
-        // So we keep the full string "Vancouver-Point Grey (VNP)"
 
         console.log(`[Agent] Extracted Riding: ${ridingName}`);
 
-        await page.close(); // Close the page/tab
-        // Context close?
-        // Using reusing browser so we don't close browser.
+        if (!ridingName) {
+            throw new Error('Could not extract riding name from results');
+        }
+
+        await page.close();
+        await context.close();
 
         res.json({ riding: ridingName, success: true });
 
     } catch (error) {
-        console.error('[Agent] Error:', error);
-        if (context) await context.close();
+        console.error('[Agent] Error:', error.message);
+
+        // Clean up
+        if (page) {
+            try {
+                await page.close();
+            } catch (e) {
+                console.error('[Agent] Error closing page:', e.message);
+            }
+        }
+        if (context) {
+            try {
+                await context.close();
+            } catch (e) {
+                console.error('[Agent] Error closing context:', e.message);
+            }
+        }
+
         res.status(500).json({ error: error.message, success: false });
     }
 });

@@ -100,18 +100,29 @@ export function VolunteerTable() {
         }
 
         const result = await response.json();
+        console.log(`[Extract] Response for ${volunteer.first_name} ${volunteer.last_name}:`, result);
 
         if (result.success && result.riding) {
-          const { error } = await supabase
+          console.log(`[Extract] Updating database for volunteer ${volunteer.id} with riding: ${result.riding}`);
+
+          const { data, error } = await supabase
             .from('volunteers')
             .update({
               riding: result.riding,
-              riding_confirmed: true, // Confirmed because it's from the official source
+              riding_confirmed: true,
               updated_at: new Date().toISOString()
             })
-            .eq('id', volunteer.id);
+            .eq('id', volunteer.id)
+            .select();
 
-          if (!error) updatedCount++;
+          if (error) {
+            console.error(`[Extract] Database error for ${volunteer.first_name} ${volunteer.last_name}:`, error);
+          } else {
+            console.log(`[Extract] Successfully updated database for ${volunteer.first_name} ${volunteer.last_name}`, data);
+            updatedCount++;
+          }
+        } else {
+          console.error(`[Extract] Failed to extract riding for ${volunteer.first_name} ${volunteer.last_name}:`, result);
         }
       } catch (err) {
         console.error('Extraction failed', err);
