@@ -398,10 +398,14 @@ export function VolunteerTable() {
                       <div className="flex items-center gap-2">
                         <MapPin className="h-4 w-4 text-muted-foreground" />
                         <div>
-                          <p className="text-sm font-medium text-foreground">{volunteer.riding}</p>
+                          {volunteer.riding && volunteer.riding.trim() !== '' ? (
+                            <p className="text-sm font-medium text-foreground">{volunteer.riding}</p>
+                          ) : (
+                            <p className="text-sm font-medium text-warning italic">Pending Extraction</p>
+                          )}
                           <p className="text-xs text-muted-foreground">{volunteer.city}</p>
                         </div>
-                        {!volunteer.riding_confirmed && (
+                        {!volunteer.riding_confirmed && volunteer.riding && volunteer.riding.trim() !== '' && (
                           <AlertTriangle className="h-4 w-4 text-warning" />
                         )}
                       </div>
