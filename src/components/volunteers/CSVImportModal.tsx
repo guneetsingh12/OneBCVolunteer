@@ -123,6 +123,10 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
     let duplicates = 0;
     const errors: CSVImportError[] = [];
 
+    console.log('=== CSV IMPORT STARTED ===');
+    console.log(`Total rows to process: ${totalRows}`);
+    console.log('Column mapping:', columnMapping);
+
     // Import Supabase
     const { supabase } = await import('@/lib/supabase');
 
@@ -166,8 +170,15 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
         const email = getMappedValue(row, ['Email']);
         if (!email || !email.includes('@')) {
           // Skip rows without valid email, but don't error hard if it's just an empty row at end
-          if (row.join('').trim() === '') continue;
+          if (row.join('').trim() === '') {
+            console.log(`[Row ${currentRowNum}] SKIPPED: Empty row`);
+            continue;
+          }
 
+          const errorMsg = `Invalid or missing email: "${email}"`;
+          console.error(`[Row ${currentRowNum}] FAILED: ${errorMsg}`);
+          console.error(`[Row ${currentRowNum}] Row data:`, row);
+          
           failed++;
           errors.push({ row: currentRowNum, field: 'email', value: email, message: 'Invalid or missing email' });
           continue;
@@ -241,18 +252,32 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
           .upsert(volunteerData, { onConflict: 'email' });
 
         if (error) {
-          console.error('Upsert error:', error);
+          console.error(`[Row ${currentRowNum}] DATABASE ERROR for ${email}:`, error.message);
+          console.error(`[Row ${currentRowNum}] Full error:`, error);
+          console.error(`[Row ${currentRowNum}] Data attempted:`, volunteerData);
           failed++;
           errors.push({ row: currentRowNum, field: 'database', value: email, message: error.message });
         } else {
+          console.log(`[Row ${currentRowNum}] SUCCESS: ${email}`);
           successful++;
         }
 
       } catch (err) {
-        console.error('Row processing error', err);
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        console.error(`[Row ${currentRowNum}] EXCEPTION:`, err);
+        console.error(`[Row ${currentRowNum}] Row data:`, row);
         failed++;
-        errors.push({ row: currentRowNum, field: 'unknown', value: '', message: 'Unknown error' });
+        errors.push({ row: currentRowNum, field: 'unknown', value: '', message: errorMessage });
       }
+    }
+
+    console.log('=== CSV IMPORT COMPLETE ===');
+    console.log(`Total: ${totalRows}, Successful: ${successful}, Failed: ${failed}, Duplicates: ${duplicates}`);
+    if (errors.length > 0) {
+      console.log('=== FAILED ROWS SUMMARY ===');
+      errors.forEach(e => {
+        console.log(`Row ${e.row}: [${e.field}] ${e.message} (value: ${e.value})`);
+      });
     }
 
     setProgress(100);
