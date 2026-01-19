@@ -1,52 +1,68 @@
-import { Users, Calendar, Clock, DoorOpen, Phone, UserPlus } from 'lucide-react';
+import { Users, Calendar, Clock, DoorOpen, Phone, TrendingUp, Loader2 } from 'lucide-react';
 import { StatCard } from './StatCard';
 import { EngagementChart } from './EngagementChart';
 import { RegionBreakdown } from './RegionBreakdown';
-import { RecentActivity } from './RecentActivity';
 import { RidingPerformance } from './RidingPerformance';
-import { mockDashboardStats } from '@/data/mockData';
+import { RecentActivity } from './RecentActivity';
+import { useDashboardData } from '@/hooks/useDashboardData';
 
 export function Dashboard() {
+  const { stats, recentVolunteers, upcomingEvents, recentActivities, loading, error } = useDashboardData();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2 text-muted-foreground">Loading dashboard...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-destructive">{error}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <StatCard
           title="Total Volunteers"
-          value={mockDashboardStats.total_volunteers}
-          change={{ value: 12, label: 'vs last month' }}
+          value={stats.total_volunteers}
+          change={{ value: stats.volunteers_this_month, label: 'this month' }}
           icon={Users}
           variant="primary"
         />
         <StatCard
           title="Active Volunteers"
-          value={mockDashboardStats.active_volunteers}
-          change={{ value: 8, label: 'vs last month' }}
+          value={stats.active_volunteers}
+          change={{ value: stats.engagement_rate, label: '% active' }}
           icon={Users}
         />
         <StatCard
           title="Upcoming Events"
-          value={mockDashboardStats.upcoming_events}
+          value={stats.upcoming_events}
           icon={Calendar}
           variant="secondary"
         />
         <StatCard
           title="Total Hours"
-          value={mockDashboardStats.total_hours}
-          change={{ value: 15, label: 'vs last month' }}
+          value={stats.total_hours}
           icon={Clock}
         />
         <StatCard
           title="Doors Knocked"
-          value={mockDashboardStats.total_doors}
-          change={{ value: 22, label: 'vs last month' }}
+          value={stats.total_doors}
           icon={DoorOpen}
           variant="accent"
         />
         <StatCard
           title="Calls Made"
-          value={mockDashboardStats.total_calls}
-          change={{ value: 18, label: 'vs last month' }}
+          value={stats.total_calls}
           icon={Phone}
         />
       </div>
@@ -62,7 +78,11 @@ export function Dashboard() {
       {/* Bottom Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <RidingPerformance />
-        <RecentActivity />
+        <RecentActivity 
+          recentVolunteers={recentVolunteers} 
+          upcomingEvents={upcomingEvents}
+          recentActivities={recentActivities}
+        />
       </div>
     </div>
   );
