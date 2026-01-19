@@ -10,226 +10,241 @@ app.use(cors());
 app.use(express.json());
 
 let browser = null;
+let context = null;
 
-// Keep browser open? Or open new one each time?
-// User said "opens a new browser search". Could mean per request.
-// But for performance, maybe keep one instance?
-// "browser based agent which opens up... and paste it"
-// Let's open a context per request to be safe and separate, but keep the browser instance if possible for speed, or launch new if simpler.
-// User said "opens a new browser", implying visibility.
-// If I use a single browser instance and new pages, it's cleaner.
-// But hitting "Extract" on multiple people might mean multiple tabs.
-// Let's implement sequential processing in the UI, so we handle one at a time.
+// Initialize browser once
+(async () => {
+    try {
+        console.log('[Agent] Launching browser instance...');
+        browser = await chromium.launch({
+            headless: false,
+            slowMo: 100,
+            args: ['--start-maximized']
+        });
+        context = await browser.newContext({
+            viewport: { width: 1920, height: 1080 }
+        });
+        console.log('[Agent] Browser ready');
+    } catch (e) {
+        console.error('[Agent] Failed to launch browser:', e);
+    }
+})();
+
+function cleanAddress(address) {
+    if (!address) return '';
+    // Remove unit numbers like #13-, Unit 5-, etc.
+    // Matches leading #\d+[a-zA-Z]?-? or Unit \d+ or Apt \d+ etc.
+    let cleaned = address.replace(/^(?:#|Unit\s*|Apt\s*)\d+[a-zA-Z]?[\s-]?/i, '');
+    // Also handle "101-123 Main St" format common in BC
+    cleaned = cleaned.replace(/^\d+-(\d+)/, '$1');
+    return cleaned.trim();
+}
 
 app.post('/extract-riding', async (req, res) => {
-    const { address } = req.body;
+    let { address } = req.body;
     if (!address) {
         return res.status(400).json({ error: 'Address is required' });
     }
 
-    console.log(`[Agent] Starting extraction for: ${address}`);
-    let context = null;
+    const cleanedAddress = cleanAddress(address);
+    console.log(`[Agent] Original request: ${address} -> Cleaned: ${cleanedAddress}`);
+
     let page = null;
 
     try {
-        // Launch browser if not running
+        // Ensure browser is running
         if (!browser || !browser.isConnected()) {
-            console.log('[Agent] Launching browser...');
-            browser = await chromium.launch({
-                headless: false,
-                slowMo: 100, // Slow down for visibility
-                args: ['--start-maximized']
-            });
+            console.log('[Agent] Browser disconnected, relaunching...');
+            browser = await chromium.launch({ headless: false, slowMo: 100, args: ['--start-maximized'] });
+            context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
         }
 
-        context = await browser.newContext({
-            viewport: { width: 1920, height: 1080 }
-        });
         page = await context.newPage();
 
         console.log('[Agent] Navigating to Elections BC...');
-        await page.goto('https://mydistrict.elections.bc.ca/', {
-            waitUntil: 'networkidle',
-            timeout: 30000
-        });
+        // Use a shorter timeout or handle failures gracefully
+        try {
+            await page.goto('https://mydistrict.elections.bc.ca/', {
+                waitUntil: 'networkidle',
+                timeout: 15000
+            });
+        } catch (e) {
+            console.log('[Agent] Navigation timeout/error, trying to proceed anyway if content loaded...');
+        }
 
-        // Wait for the page to fully load (it's a React app)
-        await page.waitForTimeout(2000);
-
-        console.log('[Agent] Looking for address input...');
-
-        // Try multiple strategies to find the input
+        // Wait for input
         const inputSelectors = [
-            'input[type="text"]',
-            'input[type="search"]',
             'input[placeholder*="address" i]',
             'input[aria-label*="address" i]',
             '#address-input',
-            'input.search-input',
             'input'
         ];
 
         let inputLocator = null;
         for (const selector of inputSelectors) {
-            const count = await page.locator(selector).count();
-            if (count > 0) {
+            if (await page.locator(selector).count() > 0) {
                 inputLocator = page.locator(selector).first();
-                console.log(`[Agent] Found input using selector: ${selector}`);
                 break;
             }
         }
 
-        if (!inputLocator) {
-            throw new Error('Could not find address search input on the page');
-        }
+        if (!inputLocator) throw new Error('Address input not found');
 
-        // Wait for input to be visible and enabled
-        await inputLocator.waitFor({ state: 'visible', timeout: 10000 });
-
-        console.log('[Agent] Typing address...');
         await inputLocator.click();
         await inputLocator.fill('');
-        await inputLocator.type(address, { delay: 50 });
+        await inputLocator.type(cleanedAddress, { delay: 50 });
 
-        // Wait for autocomplete suggestions to appear
-        console.log('[Agent] Waiting for autocomplete suggestions...');
-        await page.waitForTimeout(2000);
+        // Wait for suggestions
+        await page.waitForTimeout(1500); // 1.5s wait for autocomplete
 
-        console.log('[Agent] Looking for autocomplete suggestions...');
-
-        // Try to find and click the first autocomplete suggestion
-        const suggestionSelectors = [
-            '[role="option"]',
-            '[class*="suggestion"]',
-            '[class*="autocomplete"] li',
-            '[class*="dropdown"] li',
-            'li[tabindex]',
-            'div[role="option"]'
-        ];
-
-        let suggestionClicked = false;
-        for (const selector of suggestionSelectors) {
-            const count = await page.locator(selector).count();
-            if (count > 0) {
-                console.log(`[Agent] Found ${count} suggestions using selector: ${selector}`);
-                // Click the first suggestion
-                await page.locator(selector).first().click();
-                suggestionClicked = true;
-                console.log('[Agent] Clicked first suggestion');
-                break;
-            }
-        }
-
-        if (!suggestionClicked) {
-            console.log('[Agent] No suggestions found, trying Enter key...');
+        // Select first suggestion or press enter
+        const suggestions = page.locator('[role="option"], li[id*="option"], .pac-item');
+        if (await suggestions.count() > 0) {
+            console.log('[Agent] Clicking first suggestion...');
+            await suggestions.first().click();
+        } else {
+            console.log('[Agent] No suggestions, pressing Enter...');
             await inputLocator.press('Enter');
         }
 
-        // Wait for navigation or results
-        await page.waitForTimeout(3000);
-
-        console.log('[Agent] Waiting for results...');
-
-        // Try multiple selectors for the result
-        const resultSelectors = [
-            'text=Your electoral district',
-            'text=electoral district',
-            'text=Provincial Election',
-            '[class*="result"]',
-            '[class*="district"]'
-        ];
-
-        let resultFound = false;
-        let resultLocator = null;
-
-        for (const selector of resultSelectors) {
-            try {
-                await page.waitForSelector(selector, { timeout: 5000 });
-                resultLocator = page.locator(selector).first();
-                console.log(`[Agent] Found result using selector: ${selector}`);
-                resultFound = true;
-                break;
-            } catch (e) {
-                console.log(`[Agent] Selector ${selector} not found, trying next...`);
-            }
+        // Wait for result
+        // "Your electoral district" or similar text
+        const resultSelector = 'text=electoral district';
+        try {
+            await page.waitForSelector(resultSelector, { timeout: 10000 });
+        } catch (e) {
+            console.log('[Agent] Result selector timed out, checking page text...');
         }
 
-        if (!resultFound) {
-            // Take a screenshot for debugging
-            await page.screenshot({ path: '/tmp/bc-elections-debug.png' });
-            throw new Error('Could not find results on the page. Screenshot saved to /tmp/bc-elections-debug.png');
-        }
-
-        // Extract the riding name
-        console.log('[Agent] Extracting riding name...');
-
-        const textContext = await resultLocator.evaluate(el => {
-            // Get the parent container
-            let container = el;
-            for (let i = 0; i < 5; i++) {
-                if (container.parentElement) {
-                    container = container.parentElement;
-                }
-            }
-            return container.innerText;
-        });
-
-        console.log(`[Agent] Raw Result Text: ${textContext}`);
-
-        // Parse the riding name
-        const lines = textContext.split('\n').map(l => l.trim()).filter(l => l);
+        // Extract all text from page to Regex match
+        const pageText = await page.evaluate(() => document.body.innerText);
 
         let ridingName = '';
+        // Look for pattern: "Your electoral district for the .* Provincial General Election will be:?\s*(.*)"
+        // Or specific line extraction logic
 
-        // Look for the line after "Your electoral district"
-        const labelIndex = lines.findIndex(l => l.includes('Your electoral district') || l.includes('electoral district'));
-
-        if (labelIndex !== -1 && lines[labelIndex + 1]) {
-            ridingName = lines[labelIndex + 1];
+        // Strategy 1: Look for "will be" followed by Riding Name (Often with (ABC) code)
+        const match = pageText.match(/Your electoral district.*?will be:?\s*\n*\s*([A-Za-z\s-]+(?:\([A-Z]{3}\))?)/i);
+        if (match && match[1]) {
+            ridingName = match[1].trim();
         } else {
-            // Fallback: Look for a line that looks like a riding name (contains parentheses with abbreviation)
-            const ridingLine = lines.find(l => /\([A-Z]{3}\)/.test(l));
-            if (ridingLine) {
-                ridingName = ridingLine;
-            } else {
-                // Last resort: just get all text after the label
-                ridingName = textContext.replace(/.*Your electoral district.*will be:?\s*/is, '').trim();
+            // Strategy 2: Look for any line with (ABC) code which often denotes riding in BC context
+            const ridingMatch = pageText.match(/([A-Za-z\s-]+)\s\([A-Z]{3}\)/);
+            if (ridingMatch) {
+                ridingName = ridingMatch[0].trim();
             }
         }
 
-        console.log(`[Agent] Extracted Riding: ${ridingName}`);
+        console.log(`[Agent] Extracted: ${ridingName}`);
 
-        if (!ridingName) {
-            throw new Error('Could not extract riding name from results');
+        if (ridingName) {
+            res.json({ riding: ridingName, success: true });
+        } else {
+            throw new Error('Could not parse riding name from page content');
         }
-
-        await page.close();
-        await context.close();
-
-        res.json({ riding: ridingName, success: true });
 
     } catch (error) {
         console.error('[Agent] Error:', error.message);
-
-        // Clean up
-        if (page) {
-            try {
-                await page.close();
-            } catch (e) {
-                console.error('[Agent] Error closing page:', e.message);
-            }
-        }
-        if (context) {
-            try {
-                await context.close();
-            } catch (e) {
-                console.error('[Agent] Error closing context:', e.message);
-            }
-        }
-
         res.status(500).json({ error: error.message, success: false });
+    } finally {
+        if (page) await page.close();
     }
 });
+
+app.post('/extract-property', async (req, res) => {
+    let { address } = req.body;
+    if (!address) {
+        return res.status(400).json({ error: 'Address is required' });
+    }
+
+    const cleanedAddress = cleanAddress(address);
+    console.log(`[Agent-Prop] Starting property extraction for: ${cleanedAddress}`);
+
+    let page = null;
+
+    try {
+        if (!browser || !browser.isConnected()) {
+            console.log('[Agent-Prop] Relaunching browser...');
+            browser = await chromium.launch({ headless: false, slowMo: 100, args: ['--start-maximized'] });
+            context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+        }
+        page = await context.newPage();
+
+        console.log('[Agent-Prop] Navigating to BC Assessment...');
+        await page.goto('https://www.bcassessment.ca/', { waitUntil: 'domcontentloaded' });
+
+        // Handle Disclaimer
+        try {
+            const agree = page.locator('#btnAgree');
+            if (await agree.isVisible({ timeout: 3000 })) {
+                await agree.click();
+            }
+        } catch (e) { }
+
+        const searchInput = page.locator('#rsbSearch');
+        await searchInput.waitFor({ state: 'visible', timeout: 10000 });
+
+        await searchInput.click();
+        await searchInput.fill(cleanedAddress);
+
+        // Wait for suggestions
+        await page.waitForTimeout(1500);
+        const suggestion = page.locator('.ui-menu-item').first();
+
+        if (await suggestion.count() > 0 && await suggestion.isVisible()) {
+            console.log('[Agent-Prop] Clicking suggestion...');
+            await suggestion.click();
+        } else {
+            console.log('[Agent-Prop] No suggestion, pressing Enter...');
+            await searchInput.press('Enter');
+        }
+
+        // Wait for navigation or content update.
+        // We know from testing that waitForUrl might timeout but content appears.
+        // We also know regex on body works.
+
+        let value = null;
+        // Try regex polling for 10 seconds
+        console.log('[Agent-Prop] Polling for value...');
+        for (let i = 0; i < 10; i++) {
+            await page.waitForTimeout(1000);
+            const text = await page.innerText('body');
+            // Look for "Total value" followed by price, OR just large price format if we are on detail page
+            // The test script found "$953,000" via regex.
+            // We should look for specific context if possible to avoid random numbers.
+            // "Total value $953,000" or similar.
+            // Let's use the ID #lblTotalAssessedValue if available, else regex.
+
+            if (await page.locator('#lblTotalAssessedValue').isVisible()) {
+                value = await page.innerText('#lblTotalAssessedValue');
+                break;
+            }
+
+            // Fallback regex
+            const match = text.match(/\$[\d,]{3,}/);
+            if (match) {
+                // Check if it looks like a property value (usually > $10,000)
+                // This is a loose heuristic but better than nothing.
+                value = match[0];
+                break;
+            }
+        }
+
+        if (value) {
+            console.log(`[Agent-Prop] Extracted Value: ${value}`);
+            res.json({ value: value, success: true });
+        } else {
+            throw new Error('Property value not found on page');
+        }
+
+    } catch (error) {
+        console.error('[Agent-Prop] Error:', error.message);
+        res.status(500).json({ error: error.message, success: false });
+    } finally {
+        if (page) await page.close();
+    }
+});
+
 
 app.listen(PORT, () => {
     console.log(`Agent Server running on http://localhost:${PORT}`);

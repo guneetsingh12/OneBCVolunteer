@@ -33,6 +33,7 @@ export interface Volunteer {
   created_at: string;
   updated_at: string;
   // Property intelligence (optional)
+  property_value?: string;
   property_value_range?: string;
   housing_type?: 'owned' | 'rented' | 'unknown';
   external_id?: string;
@@ -145,6 +146,6 @@ export interface RidingLookupResult {
   source: 'postal_code' | 'address' | 'manual';
 }
 
-export type TabType = 'dashboard' | 'volunteers' | 'events' | 'map' | 'calendar' | 'reports' | 'settings' | 'activity';
+export type TabType = 'dashboard' | 'volunteers' | 'events' | 'map' | 'calendar' | 'reports' | 'settings' | 'activity' | 'my-activities';
 
 export type PublicTabType = 'home' | 'events' | 'map' | 'signup';

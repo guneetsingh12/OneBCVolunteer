@@ -262,7 +262,7 @@ export function VolunteerProfileModal({ isOpen, onClose, volunteer }: VolunteerP
               <div className="flex gap-4 text-sm">
                 <div className="px-3 py-2 bg-muted rounded-lg">
                   <p className="text-xs text-muted-foreground">Est. Value Range</p>
-                  <p className="font-medium text-foreground">{volunteer.property_value_range || "N/A"}</p>
+                  <p className="font-medium text-foreground">{volunteer.property_value || "N/A"}</p>
                 </div>
                 <div className="px-3 py-2 bg-muted rounded-lg">
                   <p className="text-xs text-muted-foreground">Housing Type</p>

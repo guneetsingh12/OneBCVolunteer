@@ -38,6 +38,7 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<CSVImportResult | null>(null);
   const [previewData, setPreviewData] = useState<string[][]>([]);
+  const [allData, setAllData] = useState<string[][]>([]);
   const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -56,7 +57,7 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile?.type === 'text/csv' || droppedFile?.name.endsWith('.csv')) {
       setFile(droppedFile);
-      parseCSVPreview(droppedFile);
+      parseCSV(droppedFile);
     }
   }, []);
 
@@ -64,19 +65,33 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
-      parseCSVPreview(selectedFile);
+      parseCSV(selectedFile);
     }
   };
 
-  const parseCSVPreview = (file: File) => {
+  const parseCSV = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
-      const lines = text.split('\n').slice(0, 6); // First 5 rows + header
-      const parsed = lines.map(line =>
-        line.split(',').map(cell => cell.trim().replace(/^"|"$/g, ''))
-      );
-      setPreviewData(parsed);
+      const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+
+      // Basic separator detection (tab vs comma)
+      const firstLine = lines[0] || '';
+      const tabCount = (firstLine.match(/\t/g) || []).length;
+      const commaCount = (firstLine.match(/,/g) || []).length;
+      const separator = tabCount > commaCount ? '\t' : ',';
+
+      const parsed = lines.map(line => {
+        if (separator === '\t') {
+          return line.split('\t').map(cell => cell.trim().replace(/^"|"$/g, ''));
+        }
+        // Robust comma split (handles quoted commas)
+        const matches = line.match(/(".*?"|[^",]+|(?<=,|^)(?=,|$))/g) || [];
+        return matches.map(cell => cell.trim().replace(/^"|"$/g, ''));
+      });
+
+      setAllData(parsed);
+      setPreviewData(parsed.slice(0, 6)); // Keep only first 5 rows + header for preview
 
       // Auto-map columns
       const headers = parsed[0] || [];
@@ -101,7 +116,7 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
     setStep('processing');
     setProgress(10);
 
-    const dataRows = previewData.slice(1);
+    const dataRows = allData.slice(1).filter(row => row.some(cell => cell.trim() !== ''));
     const totalRows = dataRows.length;
     let successful = 0;
     let failed = 0;
@@ -168,13 +183,13 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
         // Get riding value from CSV - do NOT auto-lookup
         // Riding extraction is handled via the "Extract Riding" button which uses the bot agent
         const csvRiding = getMappedValue(row, ['Riding']);
-        
+
         // Only use riding if it looks like a proper electoral district (not just a city name)
         // Proper format example: "West Vancouver-Capilano (WVC)"
-        const isValidRiding = csvRiding && 
-          csvRiding.includes('-') && 
+        const isValidRiding = csvRiding &&
+          csvRiding.includes('-') &&
           (csvRiding.includes('(') || csvRiding.length > 20);
-        
+
         const ridingName = isValidRiding ? csvRiding : null;
 
         // Date parsing
@@ -190,7 +205,7 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
           external_id: getMappedValue(row, ['Volunteer_ID', 'ID']),
           first_name: getMappedValue(row, ['First_Name', 'First Name']),
           last_name: getMappedValue(row, ['Last_Name', 'Last Name']),
-          email: email,
+          email: email.toLowerCase().trim(),
           phone: getMappedValue(row, ['Phone']),
           city: city,
           postal_prefix: getMappedValue(row, ['Postal_Prefix']),
@@ -223,16 +238,12 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
 
         const { error } = await supabase
           .from('volunteers')
-          .insert(volunteerData);
+          .upsert(volunteerData, { onConflict: 'email' });
 
         if (error) {
-          if (error.code === '23505') { // Unique violation
-            duplicates++;
-          } else {
-            console.error('Insert error:', error);
-            failed++;
-            errors.push({ row: currentRowNum, field: 'database', value: '', message: error.message });
-          }
+          console.error('Upsert error:', error);
+          failed++;
+          errors.push({ row: currentRowNum, field: 'database', value: email, message: error.message });
         } else {
           successful++;
         }
@@ -264,6 +275,7 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
     setProgress(0);
     setResult(null);
     setPreviewData([]);
+    setAllData([]);
     setColumnMapping({});
   };
 
@@ -370,7 +382,7 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
                   <div className="flex-1">
                     <p className="font-medium text-foreground">{file.name}</p>
                     <p className="text-sm text-muted-foreground">
-                      {(file.size / 1024).toFixed(1)} KB • {previewData.length - 1} rows detected
+                      {(file.size / 1024).toFixed(1)} KB • {allData.length - 1} rows detected
                     </p>
                   </div>
                   <Button variant="ghost" size="sm" onClick={resetModal}>
@@ -439,7 +451,7 @@ export function CSVImportModal({ isOpen, onClose, onSuccess }: CSVImportModalPro
                 <Button variant="outline" onClick={resetModal}>Back</Button>
                 <Button onClick={processImport} className="bg-gradient-primary gap-2">
                   <Upload className="h-4 w-4" />
-                  Import {previewData.length - 1} Volunteers
+                  Import {allData.length - 1} Volunteers
                 </Button>
               </div>
             </div>

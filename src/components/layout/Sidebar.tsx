@@ -1,43 +1,51 @@
-import { 
-  LayoutDashboard, 
-  Users, 
-  Calendar, 
-  Map, 
-  CalendarDays, 
-  BarChart3, 
+import {
+  LayoutDashboard,
+  Users,
+  Calendar,
+  Map,
+  CalendarDays,
+  BarChart3,
   Settings,
   LogOut,
   Vote,
   ChevronLeft,
   ChevronRight,
   Activity,
-  Sparkles
+  Sparkles,
+  ClipboardList
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TabType } from '@/types';
 import { useState } from 'react';
+import { useUser } from '@/contexts/UserContext';
 
 interface SidebarProps {
   activeTab: TabType;
   onTabChange: (tab: TabType) => void;
 }
 
-const navItems = [
-  { id: 'dashboard' as TabType, label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'volunteers' as TabType, label: 'Volunteers', icon: Users },
-  { id: 'events' as TabType, label: 'Events', icon: Calendar },
-  { id: 'map' as TabType, label: 'Riding Map', icon: Map },
-  { id: 'calendar' as TabType, label: 'Calendar', icon: CalendarDays },
-  { id: 'reports' as TabType, label: 'Reports', icon: BarChart3 },
-  { id: 'activity' as TabType, label: 'Activity Log', icon: Activity },
-  { id: 'settings' as TabType, label: 'Settings', icon: Settings },
-];
-
 export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const { user, logout, isVolunteer } = useUser();
+
+  const navItems = [
+    { id: 'dashboard' as TabType, label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'volunteers' as TabType, label: 'Volunteers', icon: Users, hidden: isVolunteer },
+    { id: 'my-activities' as TabType, label: 'My Activities', icon: ClipboardList, show: isVolunteer },
+    { id: 'events' as TabType, label: 'Events', icon: Calendar },
+    { id: 'map' as TabType, label: 'Riding Map', icon: Map, hidden: isVolunteer },
+    { id: 'calendar' as TabType, label: 'Calendar', icon: CalendarDays },
+    { id: 'reports' as TabType, label: 'Reports', icon: BarChart3, hidden: isVolunteer },
+    { id: 'activity' as TabType, label: 'Activity Log', icon: Activity, hidden: isVolunteer },
+    { id: 'settings' as TabType, label: 'Settings', icon: Settings },
+  ].filter(item => {
+    if (item.hidden) return false;
+    if (item.show !== undefined) return item.show;
+    return true;
+  });
 
   return (
-    <aside 
+    <aside
       className={cn(
         "fixed left-0 top-0 z-40 h-screen bg-sidebar transition-all duration-300 flex flex-col",
         collapsed ? "w-20" : "w-64"
@@ -62,7 +70,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
-          
+
           return (
             <button
               key={item.id}
@@ -103,18 +111,21 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
         )}>
           <div className="relative">
             <div className="h-10 w-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground font-semibold text-sm">
-              DR
+              {user?.name?.[0].toUpperCase() || 'U'}
             </div>
             <div className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-success border-2 border-sidebar" />
           </div>
           {!collapsed && (
             <div className="flex-1 animate-fade-in min-w-0">
-              <p className="text-sm font-medium text-sidebar-foreground truncate">Director</p>
-              <p className="text-xs text-sidebar-foreground/50 truncate">Operations Lead</p>
+              <p className="text-sm font-medium text-sidebar-foreground truncate">{user?.name}</p>
+              <p className="text-xs text-sidebar-foreground/50 truncate capitalize">{user?.role}</p>
             </div>
           )}
           {!collapsed && (
-            <button className="p-2 rounded-lg hover:bg-sidebar-accent text-sidebar-foreground/50 hover:text-sidebar-foreground transition-colors">
+            <button
+              onClick={logout}
+              className="p-2 rounded-lg hover:bg-sidebar-accent text-sidebar-foreground/50 hover:text-sidebar-foreground transition-colors"
+            >
               <LogOut className="h-4 w-4" />
             </button>
           )}

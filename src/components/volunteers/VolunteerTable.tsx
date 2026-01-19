@@ -86,7 +86,7 @@ export function VolunteerTable() {
       if (!volunteer.street_address || !volunteer.city) continue;
 
       try {
-        const response = await fetch('http://localhost:3001/extract-riding', {
+        const response = await fetch('/extract-riding', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -117,6 +117,9 @@ export function VolunteerTable() {
 
           if (error) {
             console.error(`[Extract] Database error for ${volunteer.first_name} ${volunteer.last_name}:`, error);
+          } else if (!data || data.length === 0) {
+            console.error(`[Extract] Update returned no data for ${volunteer.first_name} ${volunteer.last_name}. RLS blocking update?`);
+            // Don't count as success
           } else {
             console.log(`[Extract] Successfully updated database for ${volunteer.first_name} ${volunteer.last_name}`, data);
             updatedCount++;
@@ -139,11 +142,134 @@ export function VolunteerTable() {
     await fetchVolunteers();
     setIsExtracting(false);
 
+    if (updatedCount === 0 && targets.length > 0) {
+      toast({
+        title: "Update Failed",
+        description: "Extracted data but could not save to DB. Check Supabase RLS policies.",
+        variant: "destructive"
+      });
+    } else {
+      toast({
+        title: "Extraction Complete",
+        description: `Successfully updated ridings for ${updatedCount} volunteers.`,
+        variant: "default"
+      });
+    }
+  };
+
+  const [isExtractingProp, setIsExtractingProp] = useState(false);
+
+  const handleExtractProperty = async () => {
+    const targets = selectedVolunteers.length > 0
+      ? volunteers.filter(v => selectedVolunteers.includes(v.id))
+      : volunteers.filter(v => !v.property_value || v.property_value.trim() === '');
+
+    console.log(`[ExtractProp] Total volunteers: ${volunteers.length}`);
+    console.log(`[ExtractProp] Selected: ${selectedVolunteers.length}`);
+    console.log(`[ExtractProp] Targets found: ${targets.length}`);
+
+    if (targets.length === 0) {
+      toast({
+        title: "No volunteers to process",
+        description: selectedVolunteers.length > 0
+          ? "Selected volunteers already have property values."
+          : "All volunteers have property values. Select specific volunteers to re-extract.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Check if any targets have valid addresses
+    const validTargets = targets.filter(v => v.street_address && v.city);
+    console.log(`[ExtractProp] Valid addresses: ${validTargets.length}/${targets.length}`);
+
+    if (validTargets.length === 0) {
+      toast({
+        title: "No valid addresses",
+        description: "Selected volunteers are missing street address or city information.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsExtractingProp(true);
+    let updatedCount = 0;
+
     toast({
-      title: "Extraction Complete",
-      description: `Successfully updated ridings for ${updatedCount} volunteers.`,
-      variant: updatedCount > 0 ? "default" : "destructive" // Show success style usually
+      title: "Property Extraction Started",
+      description: `Analyzing property values for ${validTargets.length} volunteers...`,
     });
+
+    for (const volunteer of validTargets) {
+      const fullAddress = `${volunteer.street_address}, ${volunteer.city}`;
+      console.log(`[ExtractProp] Processing: ${volunteer.first_name} ${volunteer.last_name} - ${fullAddress}`);
+
+      try {
+        const response = await fetch('/extract-property', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: fullAddress })
+        });
+
+        if (!response.ok) {
+          console.error(`[ExtractProp] Agent server returned ${response.status}`);
+          continue;
+        }
+
+        const result = await response.json();
+        console.log(`[ExtractProp] Response for ${volunteer.first_name}:`, result);
+
+        if (result.success && result.value) {
+          console.log(`[ExtractProp] Updating database for ${volunteer.first_name} with value: ${result.value}`);
+
+          const { data, error } = await supabase
+            .from('volunteers')
+            .update({
+              property_value: result.value,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', volunteer.id)
+            .select();
+
+          if (error) {
+            console.error(`[ExtractProp] DB error for ${volunteer.first_name}:`, error);
+          } else if (!data || data.length === 0) {
+            console.error(`[ExtractProp] No data returned for ${volunteer.first_name}. RLS blocking?`);
+          } else {
+            console.log(`[ExtractProp] Successfully updated ${volunteer.first_name}`);
+            updatedCount++;
+          }
+        } else {
+          console.error(`[ExtractProp] Failed to extract value for ${volunteer.first_name}`);
+        }
+      } catch (err) {
+        console.error(`[ExtractProp] Error processing ${volunteer.first_name}:`, err);
+        toast({
+          title: "Agent Connection Failed",
+          description: "Make sure the agent server is running: npm run start:agent",
+          variant: "destructive"
+        });
+        setIsExtractingProp(false);
+        return;
+      }
+    }
+
+    await fetchVolunteers();
+    setIsExtractingProp(false);
+
+    if (updatedCount === 0 && validTargets.length > 0) {
+      toast({
+        title: "Update Failed",
+        description: "Extracted data but could not save to DB. Check console and Supabase RLS policies.",
+        variant: "destructive"
+      });
+    } else {
+      toast({
+        title: "Property Extraction Complete",
+        description: `Successfully updated property values for ${updatedCount}/${validTargets.length} volunteers.`,
+        variant: "default"
+      });
+    }
   };
 
   const fetchVolunteers = async () => {
@@ -303,6 +429,23 @@ export function VolunteerTable() {
             )}
             <span className="hidden sm:inline">
               {isExtracting ? 'Extracting...' : 'Extract Riding'}
+            </span>
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-2 border-emerald-500 text-emerald-600 hover:bg-emerald-50"
+            onClick={handleExtractProperty}
+            disabled={isExtractingProp}
+          >
+            {isExtractingProp ? (
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-emerald-600 border-t-transparent" />
+            ) : (
+              <span className="font-bold text-lg">$</span>
+            )}
+            <span className="hidden sm:inline">
+              {isExtractingProp ? 'Extracting...' : 'Extract Property'}
             </span>
           </Button>
         </div>
