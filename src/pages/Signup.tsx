@@ -89,14 +89,18 @@ const Signup = () => {
   useEffect(() => {
     const checkExistingVolunteer = async () => {
       const email = emailValue?.toLowerCase().trim();
-      if (!email || !email.includes('@')) return;
-
-      if (email === DIRECTOR_EMAIL) {
-        setValue('role', 'director');
+      if (!email || !email.includes('@')) {
+        setExistingVolunteer(null);
         return;
       }
 
-      const { data } = await supabase
+      if (email === DIRECTOR_EMAIL) {
+        setValue('role', 'director');
+        setExistingVolunteer(null);
+        return;
+      }
+
+      const { data, error } = await supabase
         .from('volunteers')
         .select('*')
         .eq('email', email)
@@ -104,6 +108,7 @@ const Signup = () => {
 
       if (data) {
         setExistingVolunteer(data);
+        setValue('role', 'volunteer'); // Force role to volunteer if they exist in that table
         setValue('first_name', data.first_name || '');
         setValue('last_name', data.last_name || '');
         setValue('phone', data.phone || '');
@@ -132,7 +137,9 @@ const Signup = () => {
           setSelectedLanguages(data.languages);
           setValue('languages', data.languages);
         }
-        setValue('consent', data.consent_given || false);
+        setValue('consent', data.consent_given || true);
+      } else {
+        setExistingVolunteer(null);
       }
     };
 
@@ -173,7 +180,15 @@ const Signup = () => {
       });
 
       if (authError) {
-        toast({ title: "Signup Error", description: authError.message, variant: "destructive" });
+        if (authError.message.includes('already registered')) {
+          toast({
+            title: "Account Exists",
+            description: "You already have a login. Please go to the Login page.",
+            variant: "destructive"
+          });
+        } else {
+          toast({ title: "Signup Error", description: authError.message, variant: "destructive" });
+        }
         setLoading(false);
         return;
       }
@@ -197,27 +212,16 @@ const Signup = () => {
         status: roleStatus
       };
 
-      let roleResult;
       if (existingRole) {
-        roleResult = await supabase.from('user_roles').update(rolePayload).eq('user_id', authData.user?.id);
+        await supabase.from('user_roles').update(rolePayload).eq('user_id', authData.user?.id);
       } else {
-        roleResult = await supabase.from('user_roles').insert(rolePayload);
+        await supabase.from('user_roles').insert(rolePayload);
       }
 
-      if (roleResult.error) {
-        console.error('Role Update Error:', roleResult.error);
-        toast({
-          title: "Database Error",
-          description: "Failed to update user role: " + roleResult.error.message,
-          variant: "destructive"
-        });
-        setLoading(false);
-        return;
-      }
-
-      // Build Volunteer Record
-      const volunteerPayload = {
-        id: authData.user?.id, // LINK TO AUTH ID
+      // --- STEP 2: Handle Volunteer Record ---
+      // We keep the Auth User ID as the primary link ID for NEW volunteers.
+      // For EXISTING volunteers, we update their record by email.
+      const volunteerPayload: any = {
         first_name: data.first_name,
         last_name: data.last_name,
         email: data.email.toLowerCase().trim(),
@@ -235,22 +239,27 @@ const Signup = () => {
         availability_times: selectedTimes,
         role_interest: selectedInterests,
         consent_given: data.consent,
-        riding: existingVolunteer?.riding || 'Needs Review',
-        riding_confirmed: existingVolunteer?.riding_confirmed || false,
         status: 'active',
         updated_at: new Date().toISOString(),
       };
 
       if (existingVolunteer) {
-        // If we found an existing record by email, we update it but keep its ID or update ID to match auth
-        // To be safe, we'll use the existing volunteer ID but if we want 1:1 we should probably use authData.user.id
-        const { error: updateError } = await supabase.from('volunteers').update(volunteerPayload).eq('id', existingVolunteer.id);
+        // Update the existing record. We keep the original ID to preserve existing links
+        const { error: updateError } = await supabase
+          .from('volunteers')
+          .update(volunteerPayload)
+          .eq('email', data.email.toLowerCase().trim());
+
         if (updateError) console.error('Volunteer Update Error:', updateError);
       } else {
+        // Insert new record using the Auth ID as the record ID
         const { error: insertError } = await supabase.from('volunteers').insert({
           ...volunteerPayload,
+          id: authData.user?.id,
           date_signed_up: new Date().toISOString(),
           created_at: new Date().toISOString(),
+          riding: 'Needs Review',
+          riding_confirmed: false,
         });
         if (insertError) console.error('Volunteer Insert Error:', insertError);
       }
@@ -305,43 +314,54 @@ const Signup = () => {
         <div className="bg-card rounded-3xl shadow-2xl border border-white/20 p-8 md:p-12 space-y-10 animate-slide-up">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-12">
 
+            {existingVolunteer && (
+              <div className="bg-primary/5 p-6 rounded-2xl border border-primary/20 animate-in fade-in slide-in-from-top-4 duration-500">
+                <h2 className="text-xl font-bold text-primary mb-2">Welcome back, {existingVolunteer.first_name}!</h2>
+                <p className="text-sm text-muted-foreground">
+                  We found your volunteer record. Please set up a password to access your dashboard.
+                </p>
+              </div>
+            )}
+
             {/* Role Header */}
-            <div className="space-y-6">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="h-8 w-1 bg-primary rounded-full" />
-                <h2 className="text-2xl font-bold font-display">Who are you joining as?</h2>
+            {!existingVolunteer && (
+              <div className="space-y-6">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="h-8 w-1 bg-primary rounded-full" />
+                  <h2 className="text-2xl font-bold font-display">Who are you joining as?</h2>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {[
+                    { id: 'volunteer', label: 'Volunteer', desc: 'Standard access' },
+                    { id: 'team_lead', label: 'Team Lead', desc: 'Manage local ridings' },
+                    { id: 'director', label: 'Director', desc: 'System administrator' }
+                  ].map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setValue('role', r.id as any)}
+                      className={cn(
+                        "p-5 rounded-2xl border-2 text-left transition-all relative overflow-hidden group",
+                        watch('role') === r.id
+                          ? "border-primary bg-primary/5 shadow-md"
+                          : "border-border hover:border-primary/40 hover:bg-muted/50"
+                      )}
+                    >
+                      <div className="font-bold text-lg mb-1">{r.label}</div>
+                      <div className="text-sm text-muted-foreground">{r.desc}</div>
+                      {r.id !== 'volunteer' && (
+                        <div className="mt-3 text-[10px] font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full inline-block border border-amber-100">
+                          APPROVAL REQUIRED
+                        </div>
+                      )}
+                      {watch('role') === r.id && (
+                        <div className="absolute top-3 right-3 h-2 w-2 rounded-full bg-primary" />
+                      )}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {[
-                  { id: 'volunteer', label: 'Volunteer', desc: 'Standard access' },
-                  { id: 'team_lead', label: 'Team Lead', desc: 'Manage local ridings' },
-                  { id: 'director', label: 'Director', desc: 'System administrator' }
-                ].map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setValue('role', r.id as any)}
-                    className={cn(
-                      "p-5 rounded-2xl border-2 text-left transition-all relative overflow-hidden group",
-                      watch('role') === r.id
-                        ? "border-primary bg-primary/5 shadow-md"
-                        : "border-border hover:border-primary/40 hover:bg-muted/50"
-                    )}
-                  >
-                    <div className="font-bold text-lg mb-1">{r.label}</div>
-                    <div className="text-sm text-muted-foreground">{r.desc}</div>
-                    {r.id !== 'volunteer' && (
-                      <div className="mt-3 text-[10px] font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full inline-block border border-amber-100">
-                        APPROVAL REQUIRED
-                      </div>
-                    )}
-                    {watch('role') === r.id && (
-                      <div className="absolute top-3 right-3 h-2 w-2 rounded-full bg-primary" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
+            )}
 
             {/* Account Info */}
             <div className="space-y-6">
@@ -369,37 +389,39 @@ const Signup = () => {
             </div>
 
             {/* Basic Details */}
-            <div className="space-y-6">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="h-8 w-1 bg-primary rounded-full" />
-                <h2 className="text-2xl font-bold font-display">Personal Details</h2>
+            {!existingVolunteer && (
+              <div className="space-y-6">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="h-8 w-1 bg-primary rounded-full" />
+                  <h2 className="text-2xl font-bold font-display">Personal Details</h2>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div>
+                    <label className="text-sm font-semibold mb-2 block">First Name *</label>
+                    <Input {...register('first_name')} className="h-12 rounded-xl" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold mb-2 block">Last Name *</label>
+                    <Input {...register('last_name')} className="h-12 rounded-xl" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold mb-2 block">Phone Number *</label>
+                    <Input {...register('phone')} className="h-12 rounded-xl" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold mb-2 block">Preferred Contact</label>
+                    <select {...register('preferred_contact')} className="w-full h-12 px-3 rounded-xl border border-input bg-card text-sm font-medium">
+                      <option value="email">Email</option>
+                      <option value="phone">Phone</option>
+                      <option value="text">SMS/Text</option>
+                    </select>
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div>
-                  <label className="text-sm font-semibold mb-2 block">First Name *</label>
-                  <Input {...register('first_name')} className="h-12 rounded-xl" />
-                </div>
-                <div>
-                  <label className="text-sm font-semibold mb-2 block">Last Name *</label>
-                  <Input {...register('last_name')} className="h-12 rounded-xl" />
-                </div>
-                <div>
-                  <label className="text-sm font-semibold mb-2 block">Phone Number *</label>
-                  <Input {...register('phone')} className="h-12 rounded-xl" />
-                </div>
-                <div>
-                  <label className="text-sm font-semibold mb-2 block">Preferred Contact</label>
-                  <select {...register('preferred_contact')} className="w-full h-12 px-3 rounded-xl border border-input bg-card text-sm font-medium">
-                    <option value="email">Email</option>
-                    <option value="phone">Phone</option>
-                    <option value="text">SMS/Text</option>
-                  </select>
-                </div>
-              </div>
-            </div>
+            )}
 
             {/* Full Volunteer Form - Conditional */}
-            {roleValue === 'volunteer' && (
+            {roleValue === 'volunteer' && !existingVolunteer && (
               <div className="space-y-10 animate-in fade-in slide-in-from-top-4 duration-500">
                 <div className="space-y-6">
                   <div className="flex items-center gap-2 mb-2">
@@ -513,7 +535,7 @@ const Signup = () => {
             )}
 
             {/* Simple Address for non-volunteers */}
-            {roleValue !== 'volunteer' && (
+            {roleValue !== 'volunteer' && !existingVolunteer && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in duration-300">
                 <div className="md:col-span-2">
                   <label className="text-sm font-semibold mb-2 block">City *</label>

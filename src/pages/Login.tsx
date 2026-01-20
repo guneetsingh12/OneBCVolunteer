@@ -107,9 +107,15 @@ const LoginPage = () => {
 
             if (authError) {
                 console.error('[Login] Auth error:', authError);
+                let errorMessage = authError.message;
+
+                if (errorMessage.toLowerCase().includes('email not confirmed')) {
+                    errorMessage = "Your email hasn't been confirmed yet. Admin: Please disable 'Confirm email' in Supabase Auth Settings or check your inbox.";
+                }
+
                 toast({
                     title: "Login Failed",
-                    description: authError.message || "Invalid email or password.",
+                    description: errorMessage,
                     variant: "destructive"
                 });
                 setLoading(false);
