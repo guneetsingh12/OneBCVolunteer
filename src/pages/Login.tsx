@@ -32,69 +32,127 @@ const LoginPage = () => {
         setLoading(true);
 
         try {
+            console.log('[Login] Starting login for:', email);
+
+            // Check if user exists in volunteers table and check their role status
+            const { data: volunteerData } = await supabase
+                .from('volunteers')
+                .select('id, email')
+                .eq('email', email.toLowerCase().trim())
+                .maybeSingle();
+
+            if (volunteerData) {
+                console.log('[Login] Found volunteer record:', volunteerData.id);
+                // Check if they have a password set in user_roles
+                const { data: roleData, error: roleError } = await supabase
+                    .from('user_roles')
+                    .select('*')
+                    .or(`user_id.eq.${volunteerData.id},id.eq.${volunteerData.id}`)
+                    .maybeSingle();
+
+                if (roleError) console.error('[Login] Error checking roleData:', roleError);
+
+                if (roleData) {
+                    if (roleData.status === 'pending') {
+                        toast({
+                            title: "Approval Pending",
+                            description: "Your account request is still being reviewed by the director.",
+                            variant: "destructive"
+                        });
+                        setLoading(false);
+                        return;
+                    }
+                } else {
+                    console.log('[Login] No role record found for volunteer');
+                    // If no role record, we default to volunteer and allow login
+                    // OR we could redirect to signup if we expect a role record
+                }
+            } else if (email.toLowerCase().trim() === DIRECTOR_EMAIL) {
+                console.log('[Login] Checking director role setup');
+                // Check if director has role record
+                const { data: roleData } = await supabase
+                    .from('user_roles')
+                    .select('*')
+                    .eq('role', 'director')
+                    .limit(1);
+
+                if (!roleData || roleData.length === 0 || !roleData[0].password || roleData[0].password.length === 0) {
+                    console.log('[Login] Director setup not found or password not set');
+                    toast({
+                        title: "Setup Required",
+                        description: "Director account needs setup.",
+                    });
+                    navigate('/signup?email=' + encodeURIComponent(email) + '&role=director');
+                    setLoading(false);
+                    return;
+                }
+
+                if (roleData[0].status === 'pending') {
+                    toast({
+                        title: "Access Restricted",
+                        description: "Director access pending activation.",
+                        variant: "destructive"
+                    });
+                    setLoading(false);
+                    return;
+                }
+            }
+
             // Attempt Supabase Auth login
+            console.log('[Login] Attempting auth sign-in...');
             const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
                 email: email.toLowerCase().trim(),
                 password
             });
 
             if (authError) {
-                // If auth fails, check if user exists in volunteers table (first-time setup)
-                if (authError.message.includes('Invalid login credentials')) {
-                    const { data: volunteerData } = await supabase
-                        .from('volunteers')
-                        .select('email')
-                        .eq('email', email.toLowerCase().trim())
-                        .maybeSingle();
-
-                    if (volunteerData) {
-                        toast({
-                            title: "Password Setup Required",
-                            description: "You need to set up your password first. Please use the Sign Up page.",
-                            variant: "destructive"
-                        });
-                        navigate('/signup?email=' + encodeURIComponent(email));
-                    } else if (email.toLowerCase().trim() === DIRECTOR_EMAIL) {
-                        toast({
-                            title: "Director Account",
-                            description: "Please set up your director account via Sign Up first.",
-                            variant: "destructive"
-                        });
-                        navigate('/signup?email=' + encodeURIComponent(email) + '&role=director');
-                    } else {
-                        toast({
-                            title: "Login Failed",
-                            description: "Invalid email or password. If you're new, please sign up first.",
-                            variant: "destructive"
-                        });
-                    }
-                } else {
-                    toast({
-                        title: "Login Error",
-                        description: authError.message,
-                        variant: "destructive"
-                    });
-                }
+                console.error('[Login] Auth error:', authError);
+                toast({
+                    title: "Login Failed",
+                    description: authError.message || "Invalid email or password.",
+                    variant: "destructive"
+                });
                 setLoading(false);
                 return;
             }
 
-            // Determine role based on email
-            const isDirector = email.toLowerCase().trim() === DIRECTOR_EMAIL;
-            const role = isDirector ? 'director' : 'volunteer';
+            console.log('[Login] Auth success, user ID:', authData.user?.id);
 
-            // If volunteer, verify they exist in volunteers table
-            if (!isDirector) {
+            // --- NEW: Fetch the actual approved role from database ---
+            const { data: roleRecord, error: roleFetchError } = await supabase
+                .from('user_roles')
+                .select('role, status')
+                .eq('user_id', authData.user?.id)
+                .maybeSingle();
+
+            if (roleFetchError) console.error('[Login] Error fetching role:', roleFetchError);
+
+            // Determine role: use database role if approved, otherwise default to volunteer
+            let role: 'volunteer' | 'team_lead' | 'director' = 'volunteer';
+
+            if (roleRecord) {
+                if (roleRecord.status === 'approved') {
+                    role = roleRecord.role as any;
+                } else {
+                    toast({
+                        title: "Access Restricted",
+                        description: `Your ${roleRecord.role} access is still pending approval. Logging in with limited access.`,
+                    });
+                }
+            }
+
+            // If volunteer, verify they exist in volunteers table (extra safety)
+            if (role === 'volunteer') {
                 const { data: volunteerData } = await supabase
                     .from('volunteers')
                     .select('id, email')
                     .eq('email', email.toLowerCase().trim())
                     .maybeSingle();
 
-                if (!volunteerData) {
+                if (!volunteerData && email.toLowerCase().trim() !== DIRECTOR_EMAIL) {
                     toast({
                         title: "Access Denied",
-                        description: "Your email is not registered as a volunteer. Please contact the director.",
+                        description: "Your account is not fully set up. Please contact the director.",
                         variant: "destructive"
                     });
                     await supabase.auth.signOut();
@@ -103,10 +161,10 @@ const LoginPage = () => {
                 }
             }
 
-            await login(email, role);
+            await login(email, role, authData.user?.id);
             toast({
                 title: "Welcome back!",
-                description: `Logged in as ${role === 'director' ? 'Director' : 'Volunteer'}`,
+                description: `Logged in as ${role === 'director' ? 'Director' : role === 'team_lead' ? 'Team Lead' : 'Volunteer'}`,
             });
             navigate('/');
         } catch (err) {
@@ -176,8 +234,8 @@ const LoginPage = () => {
                         </div>
                     </div>
 
-                    <Button 
-                        type="submit" 
+                    <Button
+                        type="submit"
                         className="w-full h-11 text-base font-semibold bg-gradient-primary shadow-lg hover:translate-y-[-1px] transition-all"
                         disabled={loading}
                     >

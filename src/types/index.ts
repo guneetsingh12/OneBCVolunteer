@@ -146,6 +146,6 @@ export interface RidingLookupResult {
   source: 'postal_code' | 'address' | 'manual';
 }
 
-export type TabType = 'dashboard' | 'volunteers' | 'events' | 'map' | 'calendar' | 'reports' | 'settings' | 'activity' | 'my-activities';
+export type TabType = 'dashboard' | 'volunteers' | 'events' | 'map' | 'calendar' | 'reports' | 'settings' | 'activity' | 'my-activities' | 'approvals';
 
 export type PublicTabType = 'home' | 'events' | 'map' | 'signup';

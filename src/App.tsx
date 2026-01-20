@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import Index from "./pages/Index";
 import Signup from "./pages/Signup";
 import Login from "./pages/Login";
+import RoleApprovals from "./pages/RoleApprovals";
 import NotFound from "./pages/NotFound";
 import { UserProvider, useUser } from "./contexts/UserContext";
 
@@ -31,6 +32,14 @@ const AppContent = () => {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route
+          path="/approvals"
+          element={
+            <ProtectedRoute>
+              <RoleApprovals />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/"
           element={

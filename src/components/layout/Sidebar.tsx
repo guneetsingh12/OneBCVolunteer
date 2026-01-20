@@ -12,7 +12,8 @@ import {
   ChevronRight,
   Activity,
   Sparkles,
-  ClipboardList
+  ClipboardList,
+  ShieldCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TabType } from '@/types';
@@ -26,11 +27,12 @@ interface SidebarProps {
 
 export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const { user, logout, isVolunteer } = useUser();
+  const { user, logout, isVolunteer, isDirector } = useUser();
 
   const navItems = [
     { id: 'dashboard' as TabType, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'volunteers' as TabType, label: 'Volunteers', icon: Users, hidden: isVolunteer },
+    { id: 'approvals' as TabType, label: 'Role Requests', icon: ShieldCheck, hidden: !isDirector },
     { id: 'my-activities' as TabType, label: 'My Activities', icon: ClipboardList, show: isVolunteer },
     { id: 'events' as TabType, label: 'Events', icon: Calendar },
     { id: 'map' as TabType, label: 'Riding Map', icon: Map, hidden: isVolunteer },

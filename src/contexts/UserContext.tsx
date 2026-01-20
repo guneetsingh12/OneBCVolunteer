@@ -6,7 +6,7 @@ interface UserContextType {
     user: User | null;
     volunteerData: Volunteer | null;
     loading: boolean;
-    login: (email: string, role: User['role']) => Promise<void>;
+    login: (email: string, role: User['role'], id?: string) => Promise<void>;
     logout: () => void;
     refreshVolunteerData: () => Promise<void>;
     isAdmin: boolean;
@@ -59,11 +59,10 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     };
 
-    const login = async (email: string, role: User['role']) => {
+    const login = async (email: string, role: User['role'], id?: string) => {
         setLoading(true);
-        // Real app would use Supabase Auth
         const newUser: User = {
-            id: Math.random().toString(36).substr(2, 9),
+            id: id || Math.random().toString(36).substr(2, 9),
             email,
             name: email.split('@')[0],
             role,

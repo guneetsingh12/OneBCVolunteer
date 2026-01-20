@@ -12,6 +12,7 @@ import { SettingsView } from '@/components/settings/SettingsView';
 import { ActivityLogView } from '@/components/activity/ActivityLogView';
 import { PersonalActivities } from '@/components/activity/PersonalActivities';
 import { LogActivityModal } from '@/components/activity/LogActivityModal';
+import RoleApprovals from './RoleApprovals';
 import { TabType } from '@/types';
 import { useUser } from '@/contexts/UserContext';
 import { useToast } from '@/hooks/use-toast';
@@ -51,6 +52,8 @@ const Index = () => {
         return <ActivityLogView />;
       case 'settings':
         return <SettingsView />;
+      case 'approvals':
+        return <RoleApprovals />;
       default:
         return <Dashboard />;
     }

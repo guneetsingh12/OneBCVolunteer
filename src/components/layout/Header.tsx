@@ -18,6 +18,7 @@ const tabTitles: Record<TabType, { title: string; subtitle: string }> = {
   settings: { title: 'Settings', subtitle: 'Configure your platform' },
   activity: { title: 'Activity Log', subtitle: 'System-wide audit trail' },
   'my-activities': { title: 'My Activities', subtitle: 'View and track your contributions' },
+  approvals: { title: 'Role Requests', subtitle: 'Manage pending access requests' },
 };
 
 const addButtonLabels: Partial<Record<TabType, string>> = {
@@ -30,7 +31,7 @@ const addButtonLabels: Partial<Record<TabType, string>> = {
 import { useUser } from '@/contexts/UserContext';
 
 export function Header({ activeTab, onAddNew }: HeaderProps) {
-  const { title, subtitle } = tabTitles[activeTab];
+  const { title, subtitle } = tabTitles[activeTab] || { title: activeTab, subtitle: '' };
   const { isVolunteer } = useUser();
 
   let addLabel = addButtonLabels[activeTab];
