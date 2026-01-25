@@ -1,10 +1,12 @@
-import { useState } from 'react';
 import { Calendar } from '@/components/ui/calendar';
-import { mockEvents } from '@/data/mockData';
-import { format, isSameDay } from 'date-fns';
-import { Clock, MapPin, Users, DoorOpen, Phone, Heart, Mic, GraduationCap, Calendar as CalendarIcon } from 'lucide-react';
+import { format, isSameDay, startOfMonth, endOfMonth, isToday, isPast, isFuture } from 'date-fns';
+import { Clock, MapPin, Users, DoorOpen, Phone, Heart, Mic, GraduationCap, Calendar as CalendarIcon, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { supabase } from '@/lib/supabase';
+import { useUser } from '@/contexts/UserContext';
+import { useEffect, useState } from 'react';
+import { Event } from '@/types';
 
 const eventTypeIcons = {
   door_knock: DoorOpen,
@@ -19,18 +21,93 @@ const eventTypeIcons = {
 
 export function CalendarView() {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { isDirector, volunteerData, isVolunteer } = useUser();
+
+  useEffect(() => {
+    fetchEvents();
+  }, [volunteerData?.id]);
+
+  const fetchEvents = async () => {
+    setLoading(true);
+    try {
+      if (isDirector) {
+        // Director sees all events
+        const { data, error } = await supabase
+          .from('events')
+          .select(`
+            *,
+            event_volunteers (
+              count
+            )
+          `)
+          .order('start_date', { ascending: true });
+
+        if (data) {
+          const formatted = data.map(e => ({
+            ...e,
+            current_volunteers: e.event_volunteers?.[0]?.count || 0
+          }));
+          setEvents(formatted as Event[]);
+        }
+      } else if (isVolunteer && volunteerData?.id) {
+        // Volunteer sees their tagged events
+        const { data, error } = await supabase
+          .from('event_volunteers')
+          .select(`
+            event_id,
+            events (
+              *,
+              event_volunteers (
+                count
+              )
+            )
+          `)
+          .eq('volunteer_id', volunteerData.id);
+
+        if (data) {
+          const extracted = data
+            .map((item: any) => item.events)
+            .filter(Boolean)
+            .map(e => ({
+              ...e,
+              current_volunteers: e.event_volunteers?.[0]?.count || 0
+            }));
+          setEvents(extracted as Event[]);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching calendar events:', err);
+    }
+    setLoading(false);
+  };
 
   const eventsOnSelectedDate = selectedDate
-    ? mockEvents.filter((event) =>
-        isSameDay(new Date(event.start_date), selectedDate)
-      )
+    ? events.filter((event) =>
+      isSameDay(new Date(event.start_date), selectedDate)
+    )
     : [];
 
   const hasEvents = (date: Date) => {
-    return mockEvents.some((event) =>
+    return events.some((event) =>
       isSameDay(new Date(event.start_date), date)
     );
   };
+
+  const now = new Date();
+  const monthStart = startOfMonth(now);
+  const monthEnd = endOfMonth(now);
+
+  const activeEvents = events.filter(e => isToday(new Date(e.start_date)));
+  const completedEvents = events.filter(e => {
+    const d = new Date(e.start_date);
+    return isPast(d) && !isToday(d);
+  });
+  const upcomingThisMonth = events.filter(e => {
+    const d = new Date(e.start_date);
+    return d <= monthEnd && isFuture(d) && !isToday(d);
+  });
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
@@ -49,35 +126,16 @@ export function CalendarView() {
           modifiers={{
             hasEvent: (date) => hasEvents(date),
           }}
-          modifiersStyles={{
-            hasEvent: {
-              fontWeight: 'bold',
-            },
-          }}
-          components={{
-            Day: ({ date, ...props }) => {
-              const hasEvent = hasEvents(date);
-              const isSelected = selectedDate && isSameDay(date, selectedDate);
-              
-              return (
-                <button
-                  {...props}
-                  className={cn(
-                    "relative h-12 w-12 p-0 font-normal aria-selected:opacity-100 rounded-lg transition-all",
-                    "hover:bg-muted focus:bg-muted",
-                    isSelected && "bg-primary text-primary-foreground hover:bg-primary focus:bg-primary",
-                    !isSelected && hasEvent && "font-semibold"
-                  )}
-                >
-                  <span>{date.getDate()}</span>
-                  {hasEvent && !isSelected && (
-                    <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 h-1 w-1 rounded-full bg-accent" />
-                  )}
-                </button>
-              );
-            },
+          modifiersClassNames={{
+            hasEvent: "relative after:content-[''] after:absolute after:bottom-1 after:left-1/2 after:-translate-x-1/2 after:w-1.5 after:h-1.5 after:rounded-full after:bg-accent"
           }}
         />
+        {loading && (
+          <div className="flex items-center justify-center py-4 gap-2 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="text-sm">Updating calendar...</span>
+          </div>
+        )}
       </div>
 
       {/* Events for Selected Date */}
@@ -97,7 +155,7 @@ export function CalendarView() {
           {eventsOnSelectedDate.length > 0 ? (
             eventsOnSelectedDate.map((event) => {
               const TypeIcon = eventTypeIcons[event.event_type];
-              
+
               return (
                 <div
                   key={event.id}
@@ -147,19 +205,19 @@ export function CalendarView() {
 
         {/* Upcoming Events Summary */}
         <div className="mt-6 pt-6 border-t border-border">
-          <h4 className="text-sm font-medium text-muted-foreground mb-3">This Week</h4>
+          <h4 className="text-sm font-medium text-muted-foreground mb-3">Calendar Overview</h4>
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3 rounded-lg bg-primary/5 text-center">
               <p className="text-2xl font-bold text-primary font-display">
-                {mockEvents.filter(e => e.status === 'upcoming').length}
+                {upcomingThisMonth.length}
               </p>
-              <p className="text-xs text-muted-foreground">Upcoming</p>
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">Upcoming (Month)</p>
             </div>
             <div className="p-3 rounded-lg bg-success/5 text-center">
               <p className="text-2xl font-bold text-success font-display">
-                {mockEvents.filter(e => e.status === 'in_progress').length}
+                {activeEvents.length + completedEvents.length}
               </p>
-              <p className="text-xs text-muted-foreground">In Progress</p>
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">Active / Done</p>
             </div>
           </div>
         </div>

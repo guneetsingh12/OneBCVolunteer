@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { 
-  Calendar, 
-  MapPin, 
-  Users, 
-  Clock, 
+import {
+  Calendar,
+  MapPin,
+  Users,
+  Clock,
   MoreHorizontal,
   DoorOpen,
   Phone,
@@ -12,7 +12,8 @@ import {
   GraduationCap,
   PartyPopper,
   Loader2,
-  Plus
+  Plus,
+  Trash2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +22,8 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { EventModal } from './EventModal';
+import { useUser } from '@/contexts/UserContext';
+import { useToast } from '@/hooks/use-toast';
 
 const eventTypeConfig = {
   door_knock: { icon: DoorOpen, label: 'Door Knock', color: 'bg-primary/10 text-primary' },
@@ -45,6 +48,8 @@ export function EventsGrid() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const { isDirector } = useUser();
+  const { toast } = useToast();
 
   useEffect(() => {
     fetchEvents();
@@ -53,15 +58,26 @@ export function EventsGrid() {
   const fetchEvents = async () => {
     setLoading(true);
     try {
+      // Fetch events along with the count of volunteers tagged to each
       const { data, error } = await supabase
         .from('events')
-        .select('*')
-        .order('start_date', { ascending: false });
+        .select(`
+          *,
+          event_volunteers (
+            count
+          )
+        `)
+        .order('start_date', { ascending: true });
 
       if (error) {
         console.error('Error fetching events:', error);
       } else {
-        setEvents((data || []) as Event[]);
+        // Map the count from the join result to current_volunteers
+        const formattedEvents = (data || []).map((event: any) => ({
+          ...event,
+          current_volunteers: event.event_volunteers?.[0]?.count || 0
+        }));
+        setEvents(formattedEvents as Event[]);
       }
     } catch (err) {
       console.error('Error fetching events:', err);
@@ -69,7 +85,33 @@ export function EventsGrid() {
     setLoading(false);
   };
 
-  const filteredEvents = events.filter(event => 
+  const handleDeleteEvent = async (id: string, title: string) => {
+    if (!window.confirm(`Are you sure you want to delete the event "${title}"?`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('events')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Event deleted",
+        description: `"${title}" has been successfully removed.`,
+      });
+      fetchEvents();
+    } catch (err: any) {
+      console.error('Error deleting event:', err);
+      toast({
+        title: "Delete failed",
+        description: err.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  const filteredEvents = events.filter(event =>
     filter === 'all' || event.status === filter
   );
 
@@ -93,8 +135,8 @@ export function EventsGrid() {
               onClick={() => setFilter(status as typeof filter)}
               className={cn(
                 "px-4 py-2 rounded-md text-sm font-medium transition-all",
-                filter === status 
-                  ? "bg-card text-foreground shadow-sm" 
+                filter === status
+                  ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -103,8 +145,8 @@ export function EventsGrid() {
           ))}
         </div>
 
-        <Button 
-          onClick={() => setIsModalOpen(true)} 
+        <Button
+          onClick={() => setIsModalOpen(true)}
           className="bg-gradient-primary gap-2"
         >
           <Plus className="h-4 w-4" />
@@ -118,12 +160,12 @@ export function EventsGrid() {
           const typeConfig = eventTypeConfig[event.event_type] || eventTypeConfig.other;
           const TypeIcon = typeConfig.icon;
           const typeColor = typeConfig.color;
-          const volunteerPercentage = event.max_volunteers > 0 
+          const volunteerPercentage = event.max_volunteers > 0
             ? (event.current_volunteers / event.max_volunteers) * 100
             : 0;
 
           return (
-            <div 
+            <div
               key={event.id}
               className="stat-card group cursor-pointer animate-slide-up"
               style={{ animationDelay: `${index * 0.1}s` }}
@@ -137,9 +179,24 @@ export function EventsGrid() {
                   <Badge variant="outline" className={statusConfig[event.status]?.className || ''}>
                     {statusConfig[event.status]?.label || event.status}
                   </Badge>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
+                  {isDirector && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteEvent(event.id, event.title);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                  {!isDirector && (
+                    <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -174,17 +231,17 @@ export function EventsGrid() {
                     Volunteers
                   </span>
                   <span className="text-sm font-medium text-foreground">
-                    {event.current_volunteers}/{event.max_volunteers}
+                    {event.current_volunteers || 0}/{event.max_volunteers || 0}
                   </span>
                 </div>
                 <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div 
+                  <div
                     className={cn(
                       "h-full rounded-full transition-all duration-500",
-                      volunteerPercentage >= 80 
-                        ? "bg-success" 
-                        : volunteerPercentage >= 50 
-                          ? "bg-accent" 
+                      volunteerPercentage >= 80
+                        ? "bg-success"
+                        : volunteerPercentage >= 50
+                          ? "bg-accent"
                           : "bg-primary"
                     )}
                     style={{ width: `${volunteerPercentage}%` }}
@@ -201,7 +258,7 @@ export function EventsGrid() {
           <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
           <h3 className="text-lg font-medium text-foreground mb-2">No events found</h3>
           <p className="text-muted-foreground mb-4">
-            {events.length === 0 
+            {events.length === 0
               ? "Get started by creating your first event."
               : "Try adjusting your filters or create a new event."}
           </p>
@@ -213,7 +270,7 @@ export function EventsGrid() {
       )}
 
       {/* Event Modal */}
-      <EventModal 
+      <EventModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSuccess={fetchEvents}

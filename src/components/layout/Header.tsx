@@ -50,23 +50,27 @@ export function Header({ activeTab, onAddNew }: HeaderProps) {
         </div>
 
         <div className="flex items-center gap-4">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search..."
-              className="w-64 pl-10 bg-muted/50 border-0 focus-visible:ring-1"
-            />
-          </div>
+          {/* Search - Hidden on Volunteers as it has its own search */}
+          {activeTab !== 'volunteers' && (
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search..."
+                className="w-64 pl-10 bg-muted/50 border-0 focus-visible:ring-1"
+              />
+            </div>
+          )}
 
-          {/* Notifications */}
-          <button className="relative p-2 rounded-lg hover:bg-muted transition-colors">
-            <Bell className="h-5 w-5 text-muted-foreground" />
-            <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-accent animate-pulse" />
-          </button>
+          {/* Notifications - Hidden on Volunteers per user request */}
+          {activeTab !== 'volunteers' && (
+            <button className="relative p-2 rounded-lg hover:bg-muted transition-colors">
+              <Bell className="h-5 w-5 text-muted-foreground" />
+              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-accent animate-pulse" />
+            </button>
+          )}
 
-          {/* Add New Button */}
-          {addLabel && (
+          {/* Add New Button - Hidden on Volunteers as it has its own */}
+          {addLabel && activeTab !== 'volunteers' && (
             <Button onClick={onAddNew} variant="accent" className="gap-2">
               <Plus className="h-4 w-4" />
               {addLabel}

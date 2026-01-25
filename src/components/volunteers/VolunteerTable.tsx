@@ -292,9 +292,8 @@ export function VolunteerTable() {
     fetchVolunteers();
   }, []);
 
-  // Update filtered logic to use 'volunteers' state instead of 'mockVolunteers'
+  // Filtering logic
   const filteredVolunteers = volunteers.filter((v) => {
-    // ... same logic
     const matchesSearch =
       v.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       v.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -307,6 +306,32 @@ export function VolunteerTable() {
 
     return matchesSearch && matchesStatus && matchesRegion;
   });
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this volunteer? This action cannot be undone.')) return;
+
+    try {
+      const { error } = await supabase
+        .from('volunteers')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Volunteer deleted",
+        description: "The volunteer has been removed from the database.",
+      });
+      fetchVolunteers();
+    } catch (error: any) {
+      toast({
+        title: "Error deleting volunteer",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+    setActionMenuId(null);
+  };
 
   const toggleSelectAll = () => {
     if (selectedVolunteers.length === filteredVolunteers.length) {
@@ -334,8 +359,13 @@ export function VolunteerTable() {
     setActionMenuId(null);
   };
 
-  // Derive regions from actual data
-  const regions = [...new Set(volunteers.map(v => v.region).filter(Boolean))]; // Filter nulls
+  // Derive regions from data, filtered by selected status
+  const regions = [...new Set(
+    volunteers
+      .filter(v => selectedStatus === 'all' || v.status === selectedStatus)
+      .map(v => v.region)
+      .filter(Boolean)
+  )].sort();
 
 
   // ... Update renders to use filteredVolunteers
@@ -453,21 +483,21 @@ export function VolunteerTable() {
 
       {/* Stats Bar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-card rounded-lg p-4 border border-border/50">
-          <p className="text-sm text-muted-foreground">Total</p>
-          <p className="text-2xl font-bold text-foreground">{volunteers.length}</p>
+        <div className="bg-card rounded-lg p-4 border border-border/50 shadow-sm transition-all hover:shadow-md">
+          <p className="text-sm text-muted-foreground uppercase tracking-wider font-semibold">Total</p>
+          <p className="text-2xl font-bold text-foreground">{filteredVolunteers.length}</p>
         </div>
-        <div className="bg-success/5 rounded-lg p-4 border border-success/20">
-          <p className="text-sm text-success">Active</p>
-          <p className="text-2xl font-bold text-success">{volunteers.filter(v => v.status === 'active').length}</p>
+        <div className="bg-success/5 rounded-lg p-4 border border-success/20 shadow-sm transition-all hover:shadow-md">
+          <p className="text-sm text-success uppercase tracking-wider font-semibold">Active</p>
+          <p className="text-2xl font-bold text-success">{filteredVolunteers.filter(v => v.status === 'active').length}</p>
         </div>
-        <div className="bg-warning/5 rounded-lg p-4 border border-warning/20">
-          <p className="text-sm text-warning">Pending Review</p>
-          <p className="text-2xl font-bold text-warning">{volunteers.filter(v => v.status === 'pending').length}</p>
+        <div className="bg-warning/5 rounded-lg p-4 border border-warning/20 shadow-sm transition-all hover:shadow-md">
+          <p className="text-sm text-warning uppercase tracking-wider font-semibold">Pending Review</p>
+          <p className="text-2xl font-bold text-warning">{filteredVolunteers.filter(v => v.status === 'pending').length}</p>
         </div>
-        <div className="bg-info/5 rounded-lg p-4 border border-info/20">
-          <p className="text-sm text-info">Needs Verification</p>
-          <p className="text-2xl font-bold text-info">{volunteers.filter(v => !v.riding_confirmed).length}</p>
+        <div className="bg-info/5 rounded-lg p-4 border border-info/20 shadow-sm transition-all hover:shadow-md">
+          <p className="text-sm text-info uppercase tracking-wider font-semibold">Needs Verification</p>
+          <p className="text-2xl font-bold text-info">{filteredVolunteers.filter(v => !v.riding_confirmed).length}</p>
         </div>
       </div>
 
@@ -585,7 +615,10 @@ export function VolunteerTable() {
                             <button onClick={() => openEdit(volunteer)} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
                               <Edit2 className="h-4 w-4" /> Edit
                             </button>
-                            <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors">
+                            <button
+                              onClick={() => handleDelete(volunteer.id)}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                            >
                               <Trash2 className="h-4 w-4" /> Delete
                             </button>
                           </div>

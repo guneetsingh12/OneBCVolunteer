@@ -23,6 +23,16 @@ interface Activity {
     activity_date: string;
 }
 
+interface TaggedEvent {
+    id: string;
+    title: string;
+    description: string;
+    start_date: string;
+    end_date: string;
+    location: string;
+    event_type: string;
+}
+
 export function VolunteerDashboard() {
     const { volunteerData } = useUser();
     const [activities, setActivities] = useState<Activity[]>([]);
@@ -31,8 +41,39 @@ export function VolunteerDashboard() {
     useEffect(() => {
         if (volunteerData?.id) {
             fetchActivities();
+            fetchTaggedEvents();
         }
     }, [volunteerData?.id]);
+
+    const [taggedEvents, setTaggedEvents] = useState<TaggedEvent[]>([]);
+
+    const fetchTaggedEvents = async () => {
+        if (!volunteerData?.id) return;
+
+        const { data, error } = await supabase
+            .from('event_volunteers')
+            .select(`
+                event_id,
+                events (
+                    id,
+                    title,
+                    description,
+                    start_date,
+                    end_date,
+                    location,
+                    event_type
+                )
+            `)
+            .eq('volunteer_id', volunteerData.id);
+
+        if (!error && data) {
+            const extractedEvents = data
+                .map((item: any) => item.events)
+                .filter(Boolean)
+                .sort((a: any, b: any) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
+            setTaggedEvents(extractedEvents);
+        }
+    };
 
     const fetchActivities = async () => {
         setLoading(true);
@@ -132,28 +173,55 @@ export function VolunteerDashboard() {
 
                 {/* Next Event Sidebar */}
                 <div className="space-y-6">
-                    <div className="stat-card bg-gradient-hero border-none shadow-accent overflow-hidden relative">
-                        <div className="relative z-10 text-white">
-                            <h3 className="font-bold text-lg mb-4">Your Next Event</h3>
-                            <div className="space-y-3">
-                                <div className="flex items-center gap-3 text-sm">
-                                    <Calendar className="h-4 w-4" />
-                                    <span>Saturday, Jan 24</span>
+                    {taggedEvents.length > 0 ? (
+                        <div className="stat-card bg-gradient-hero border-none shadow-accent overflow-hidden relative">
+                            <div className="relative z-10 text-white">
+                                <h3 className="font-bold text-lg mb-4">Your Next Event</h3>
+                                <div className="space-y-3">
+                                    <div className="font-semibold text-xl mb-2">
+                                        {taggedEvents[0].title}
+                                    </div>
+                                    <div className="flex items-center gap-3 text-sm opacity-90">
+                                        <Calendar className="h-4 w-4" />
+                                        <span>{format(new Date(taggedEvents[0].start_date), 'EEEE, MMM d')}</span>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-sm opacity-90">
+                                        <Clock className="h-4 w-4" />
+                                        <span>
+                                            {format(new Date(taggedEvents[0].start_date), 'h:mm a')} - {format(new Date(taggedEvents[0].end_date), 'h:mm a')}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-sm opacity-90">
+                                        <MapPin className="h-4 w-4" />
+                                        <span className="line-clamp-2">{taggedEvents[0].location}</span>
+                                    </div>
                                 </div>
-                                <div className="flex items-center gap-3 text-sm">
-                                    <Clock className="h-4 w-4" />
-                                    <span>10:00 AM - 1:00 PM</span>
-                                </div>
-                                <div className="flex items-center gap-3 text-sm">
-                                    <MapPin className="h-4 w-4" />
-                                    <span>Kitsilano Community Center</span>
-                                </div>
+                                <Button className="w-full mt-6 bg-white text-primary hover:bg-white/90">
+                                    View Event Info
+                                </Button>
                             </div>
-                            <Button className="w-full mt-6 bg-white text-primary hover:bg-white/90">
-                                View Event Info
-                            </Button>
                         </div>
-                    </div>
+                    ) : (
+                        <div className="stat-card bg-muted/30 border-dashed border-2 flex flex-col items-center justify-center p-8 text-center">
+                            <Calendar className="h-8 w-8 text-muted-foreground mb-3" />
+                            <h3 className="font-bold text-lg text-foreground mb-1">No Upcoming Events</h3>
+                            <p className="text-sm text-muted-foreground">You don't have any events tagged yet.</p>
+                        </div>
+                    )}
+
+                    {taggedEvents.length > 1 && (
+                        <div className="stat-card">
+                            <h4 className="font-bold text-sm mb-4 uppercase tracking-wider text-muted-foreground">Other Tagged Events</h4>
+                            <div className="space-y-4">
+                                {taggedEvents.slice(1, 3).map(event => (
+                                    <div key={event.id} className="border-l-2 border-primary pl-3">
+                                        <p className="font-medium text-sm text-foreground line-clamp-1">{event.title}</p>
+                                        <p className="text-xs text-muted-foreground">{format(new Date(event.start_date), 'MMM d, h:mm a')}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
