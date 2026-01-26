@@ -32,11 +32,59 @@ let context = null;
 
 function cleanAddress(address) {
     if (!address) return '';
-    // Remove unit numbers like #13-, Unit 5-, etc.
-    // Matches leading #\d+[a-zA-Z]?-? or Unit \d+ or Apt \d+ etc.
-    let cleaned = address.replace(/^(?:#|Unit\s*|Apt\s*)\d+[a-zA-Z]?[\s-]?/i, '');
-    // Also handle "101-123 Main St" format common in BC
-    cleaned = cleaned.replace(/^\d+-(\d+)/, '$1');
+
+    // Normalize basic stuff
+    let cleaned = address.trim();
+
+    // Extract parts: "738 Broughton Street, Suite 2104, Vancouver"
+    // Regex to capture: Street part, Unit part (optional), City (optional)
+
+    // Common patterns:
+    // 1. "Street, Suite Unit, City"
+    // 2. "Street, Unit Unit, City"
+    // 3. "Unit-Street, City"
+
+    // Try to detect explicit "Suite/Unit/Apt" pattern at the end or middle
+    const suiteRegex = /[, ]+(?:Suite|Apt|Unit|#)\s*([0-9]+[a-zA-Z]?)/i;
+    const match = cleaned.match(suiteRegex);
+
+    let unit = '';
+    if (match) {
+        unit = match[1];
+        // Remove the suite part from the address string related to street
+        cleaned = cleaned.replace(match[0], ''); // Remove ", Suite 2104"
+    } else {
+        // Check for "Unit-Street" format at start
+        const prefixMatch = cleaned.match(/^([0-9]+)-([0-9]+)/);
+        if (prefixMatch) {
+            // It's already in Unit-Street format, keep as is or ensure it's clean
+            return cleaned;
+        }
+    }
+
+    // Remove City/Province if present (BC Assessment search is smarter with just street context sometimes, or needs specific format)
+    // But usually "Street, City" works if simple.
+    // Let's try to construct "Unit-StreetNumber StreetName"
+
+    // Remove trailing city if it has a comma before it
+    // cleaned = cleaned.replace(/,\s*[a-zA-Z\s]+$/, '');
+
+    // If we found a unit, prepend it: "2104-738 Broughton Street"
+    if (unit) {
+        // Extract street number
+        const streetNumMatch = cleaned.match(/^([0-9]+)\s+/);
+        if (streetNumMatch) {
+            const streetNum = streetNumMatch[1];
+            const restOfStreet = cleaned.substring(streetNum.length).trim();
+            // Remove any remaining commas
+            const finalStreet = restOfStreet.replace(/,/g, '').trim();
+            return `${unit}-${streetNum} ${finalStreet}`;
+        }
+    }
+
+    // General cleanup of Suite/Apt if not caught above or at start
+    cleaned = cleaned.replace(/^(?:#|Unit\s*|Apt\s*)\d+[a-zA-Z]?[\s-]?/i, '');
+
     return cleaned.trim();
 }
 
@@ -239,6 +287,9 @@ app.post('/extract-property', async (req, res) => {
 
     } catch (error) {
         console.error('[Agent-Prop] Error:', error.message);
+        if (error.message.includes('Property value not found') || error.message.includes('not found')) {
+            return res.status(404).json({ error: error.message, success: false });
+        }
         res.status(500).json({ error: error.message, success: false });
     } finally {
         if (page) await page.close();

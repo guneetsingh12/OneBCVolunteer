@@ -212,7 +212,8 @@ export function VolunteerTable() {
         });
 
         if (!response.ok) {
-          console.error(`[ExtractProp] Agent server returned ${response.status}`);
+          const errorData = await response.json().catch(() => ({}));
+          console.error(`[ExtractProp] Agent server returned ${response.status}`, errorData);
           continue;
         }
 
