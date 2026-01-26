@@ -24,7 +24,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
 const AppContent = () => {
   useEffect(() => {
-    document.title = "BC Connect";
+    document.title = "OneBC";
   }, []);
 
   return (

@@ -61,7 +61,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
         </div>
         {!collapsed && (
           <div className="animate-fade-in">
-            <h1 className="text-lg font-bold text-sidebar-foreground">BC Connect</h1>
+            <h1 className="text-lg font-bold text-sidebar-foreground">OneBC</h1>
             <p className="text-xs text-sidebar-foreground/50">Political Operations</p>
           </div>
         )}

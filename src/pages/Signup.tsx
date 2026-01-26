@@ -306,7 +306,7 @@ const Signup = () => {
             <Vote className="h-8 w-8 text-white" />
           </div>
         </div>
-        <h1 className="text-5xl font-bold mb-4 font-display tracking-tight">Support BC Connect</h1>
+        <h1 className="text-5xl font-bold mb-4 font-display tracking-tight">Support OneBC Connect</h1>
         <p className="text-xl text-primary-foreground/80 max-w-2xl mx-auto">Help us build a better future. Sign up today to get involved.</p>
       </div>
 
@@ -553,7 +553,7 @@ const Signup = () => {
               <div className="flex items-start gap-4 p-6 bg-muted/30 rounded-3xl border border-dashed border-muted-foreground/20">
                 <Checkbox id="consent" onCheckedChange={(c) => setValue('consent', c === true)} className="mt-1" />
                 <label htmlFor="consent" className="text-sm text-muted-foreground leading-relaxed">
-                  I agree to receive communications from BC Connect. I understand that my data will be stored securely and that I can opt-out at any time.
+                  I agree to receive communications from OneBC. I understand that my data will be stored securely and that I can opt-out at any time.
                 </label>
               </div>
 

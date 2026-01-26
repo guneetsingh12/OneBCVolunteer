@@ -193,7 +193,7 @@ const LoginPage = () => {
                         <Vote className="h-8 w-8 text-sidebar-primary-foreground" />
                     </div>
                     <h2 className="text-3xl font-bold tracking-tight text-foreground">Welcome back</h2>
-                    <p className="text-muted-foreground">Log in to BC Connect</p>
+                    <p className="text-muted-foreground">Log in to OneBC</p>
                 </div>
 
                 <form className="mt-8 space-y-6" onSubmit={handleLogin}>
