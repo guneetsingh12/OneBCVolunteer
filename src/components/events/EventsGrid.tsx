@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
+  Search,
   Calendar,
   MapPin,
   Users,
@@ -16,6 +17,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Event } from '@/types';
 import { cn } from '@/lib/utils';
@@ -45,9 +47,11 @@ const statusConfig = {
 
 export function EventsGrid() {
   const [filter, setFilter] = useState<'all' | 'upcoming' | 'in_progress' | 'completed'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const { isDirector } = useUser();
   const { toast } = useToast();
 
@@ -111,9 +115,24 @@ export function EventsGrid() {
     }
   };
 
-  const filteredEvents = events.filter(event =>
-    filter === 'all' || event.status === filter
-  );
+  const filteredEvents = events.filter(event => {
+    const matchesFilter = filter === 'all' || event.status === filter;
+    const matchesSearch =
+      event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      event.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      event.location.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
+
+  const handleCreateEvent = () => {
+    setSelectedEvent(null);
+    setIsModalOpen(true);
+  };
+
+  const handleEditEvent = (event: Event) => {
+    setSelectedEvent(event);
+    setIsModalOpen(true);
+  };
 
   if (loading) {
     return (
@@ -128,25 +147,37 @@ export function EventsGrid() {
     <div className="space-y-6 animate-fade-in">
       {/* Header with Create Button */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 p-1 bg-muted rounded-lg w-fit">
-          {['all', 'upcoming', 'in_progress', 'completed'].map((status) => (
-            <button
-              key={status}
-              onClick={() => setFilter(status as typeof filter)}
-              className={cn(
-                "px-4 py-2 rounded-md text-sm font-medium transition-all",
-                filter === status
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {status === 'all' ? 'All Events' : status.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2 p-1 bg-muted rounded-lg w-fit">
+            {['all', 'upcoming', 'in_progress', 'completed'].map((status) => (
+              <button
+                key={status}
+                onClick={() => setFilter(status as typeof filter)}
+                className={cn(
+                  "px-4 py-2 rounded-md text-sm font-medium transition-all",
+                  filter === status
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {status === 'all' ? 'All Events' : status.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
+              </button>
+            ))}
+          </div>
+
+          <div className="relative w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search events..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 bg-card border-border/50 focus-visible:ring-1"
+            />
+          </div>
         </div>
 
         <Button
-          onClick={() => setIsModalOpen(true)}
+          onClick={handleCreateEvent}
           className="bg-gradient-primary gap-2"
         >
           <Plus className="h-4 w-4" />
@@ -167,8 +198,12 @@ export function EventsGrid() {
           return (
             <div
               key={event.id}
-              className="stat-card group cursor-pointer animate-slide-up"
+              className={cn(
+                "stat-card group animate-slide-up hover:border-primary/50 transition-all",
+                isDirector ? "cursor-pointer" : "cursor-default"
+              )}
               style={{ animationDelay: `${index * 0.1}s` }}
+              onClick={() => isDirector && handleEditEvent(event)}
             >
               {/* Header */}
               <div className="flex items-start justify-between mb-4">
@@ -193,7 +228,12 @@ export function EventsGrid() {
                     </Button>
                   )}
                   {!isDirector && (
-                    <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <MoreHorizontal className="h-4 w-4" />
                     </Button>
                   )}
@@ -262,7 +302,7 @@ export function EventsGrid() {
               ? "Get started by creating your first event."
               : "Try adjusting your filters or create a new event."}
           </p>
-          <Button onClick={() => setIsModalOpen(true)} className="gap-2">
+          <Button onClick={handleCreateEvent} className="gap-2">
             <Plus className="h-4 w-4" />
             Create Event
           </Button>
@@ -272,8 +312,12 @@ export function EventsGrid() {
       {/* Event Modal */}
       <EventModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => {
+          setIsModalOpen(false);
+          setSelectedEvent(null);
+        }}
         onSuccess={fetchEvents}
+        event={selectedEvent}
       />
     </div>
   );

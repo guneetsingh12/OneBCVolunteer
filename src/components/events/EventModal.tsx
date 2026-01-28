@@ -33,6 +33,7 @@ interface EventModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  event?: any; // The event to edit, if any
 }
 
 const eventTypes = [
@@ -46,13 +47,13 @@ const eventTypes = [
   { value: 'other', label: 'Other' },
 ];
 
-export function EventModal({ isOpen, onClose, onSuccess }: EventModalProps) {
+export function EventModal({ isOpen, onClose, onSuccess, event }: EventModalProps) {
   const [loading, setLoading] = useState(false);
   const [regionalVolunteers, setRegionalVolunteers] = useState<Volunteer[]>([]);
   const [selectedVolunteerIds, setSelectedVolunteerIds] = useState<string[]>([]);
   const { toast } = useToast();
 
-  const { register, handleSubmit, formState: { errors }, reset, watch } = useForm<EventFormData>({
+  const { register, handleSubmit, formState: { errors }, reset, watch, setValue } = useForm<EventFormData>({
     resolver: zodResolver(eventSchema),
     defaultValues: {
       event_type: 'meeting',
@@ -60,6 +61,37 @@ export function EventModal({ isOpen, onClose, onSuccess }: EventModalProps) {
       is_public: true,
     }
   });
+
+  useEffect(() => {
+    if (event) {
+      setValue('title', event.title);
+      setValue('description', event.description || '');
+      setValue('event_type', event.event_type);
+      setValue('start_date', event.start_date ? new Date(event.start_date).toISOString().slice(0, 16) : '');
+      setValue('end_date', event.end_date ? new Date(event.end_date).toISOString().slice(0, 16) : '');
+
+      // Handle location which might be "Location (Address)"
+      const locationMatch = event.location.match(/^(.*?) \((.*?)\)$/);
+      if (locationMatch) {
+        setValue('location', locationMatch[1]);
+        setValue('address', locationMatch[2]);
+      } else {
+        setValue('location', event.location);
+        setValue('address', '');
+      }
+
+      setValue('riding', event.riding || '');
+      setValue('region', event.region || '');
+      setValue('max_volunteers', event.max_volunteers);
+      setValue('is_public', event.is_public !== false);
+    } else {
+      reset({
+        event_type: 'meeting',
+        max_volunteers: 10,
+        is_public: true,
+      });
+    }
+  }, [event, setValue, reset]);
 
   const watchedRegion = watch('region');
 
@@ -117,28 +149,41 @@ export function EventModal({ isOpen, onClose, onSuccess }: EventModalProps) {
         location: data.address ? `${data.location} (${data.address})` : data.location,
         region: data.region || '',
         max_volunteers: data.max_volunteers,
-        status: 'upcoming',
-        created_at: new Date().toISOString(),
+        status: event?.status || 'upcoming',
         updated_at: new Date().toISOString(),
       };
 
-      const { data: eventResult, error } = await supabase
-        .from('events')
-        .insert(eventData)
-        .select()
-        .single();
+      let result;
+      if (event) {
+        // Update existing event
+        const { data: updateData, error: updateError } = await supabase
+          .from('events')
+          .update(eventData)
+          .eq('id', event.id)
+          .select()
+          .single();
 
-      if (error) {
-        console.error('Error creating event:', error);
-        toast({
-          title: "Error",
-          description: error.message,
-          variant: "destructive"
-        });
-      } else if (eventResult && selectedVolunteerIds.length > 0) {
+        if (updateError) throw updateError;
+        result = updateData;
+      } else {
+        // Create new event
+        const { data: insertData, error: insertError } = await supabase
+          .from('events')
+          .insert({
+            ...eventData,
+            created_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+
+        if (insertError) throw insertError;
+        result = insertData;
+      }
+
+      if (result && selectedVolunteerIds.length > 0) {
         // Tag volunteers
         const assignments = selectedVolunteerIds.map(vId => ({
-          event_id: eventResult.id,
+          event_id: result.id,
           volunteer_id: vId,
           status: 'registered'
         }));
@@ -150,35 +195,27 @@ export function EventModal({ isOpen, onClose, onSuccess }: EventModalProps) {
         if (assignError) {
           console.error('Error tagging volunteers:', assignError);
           toast({
-            title: "Event Created, but tagging failed",
+            title: event ? "Event Updated, but tagging failed" : "Event Created, but tagging failed",
             description: assignError.message,
             variant: "warning" as any
           });
-        } else {
-          toast({
-            title: "Event Created & Tagged",
-            description: `"${data.title}" created and ${selectedVolunteerIds.length} volunteers tagged.`,
-          });
         }
-        reset();
-        setSelectedVolunteerIds([]);
-        onSuccess?.();
-        onClose();
-      } else {
-        toast({
-          title: "Event Created",
-          description: `"${data.title}" has been created successfully.`,
-        });
-        reset();
-        setSelectedVolunteerIds([]);
-        onSuccess?.();
-        onClose();
       }
-    } catch (err) {
-      console.error('Error creating event:', err);
+
+      toast({
+        title: event ? "Event Updated" : "Event Created",
+        description: `"${data.title}" has been ${event ? 'updated' : 'created'} successfully.`,
+      });
+
+      reset();
+      setSelectedVolunteerIds([]);
+      onSuccess?.();
+      onClose();
+    } catch (err: any) {
+      console.error('Error saving event:', err);
       toast({
         title: "Error",
-        description: "Failed to create event. Please try again.",
+        description: err.message || "Failed to save event. Please try again.",
         variant: "destructive"
       });
     }
@@ -204,9 +241,11 @@ export function EventModal({ isOpen, onClose, onSuccess }: EventModalProps) {
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 border-b border-border bg-card">
           <div>
-            <h2 className="text-xl font-bold text-foreground">Create New Event</h2>
+            <h2 className="text-xl font-bold text-foreground">
+              {event ? 'Edit Event' : 'Create New Event'}
+            </h2>
             <p className="text-sm text-muted-foreground">
-              Add a new event for volunteers
+              {event ? 'Update the details of this event' : 'Add a new event for volunteers'}
             </p>
           </div>
           <Button variant="ghost" size="icon" onClick={handleClose}>
@@ -409,10 +448,10 @@ export function EventModal({ isOpen, onClose, onSuccess }: EventModalProps) {
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating...
+                  {event ? 'Updating...' : 'Creating...'}
                 </>
               ) : (
-                'Create Event'
+                event ? 'Update Event' : 'Create Event'
               )}
             </Button>
           </div>
