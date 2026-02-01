@@ -13,12 +13,15 @@ import {
   TrendingUp,
   Activity,
   Edit2,
-  MessageSquare
+  MessageSquare,
+  ClipboardList
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Volunteer } from '@/types';
 import { cn } from '@/lib/utils';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
 
 interface VolunteerProfileModalProps {
   isOpen: boolean;
@@ -34,6 +37,39 @@ const statusConfig = {
 };
 
 export function VolunteerProfileModal({ isOpen, onClose, volunteer }: VolunteerProfileModalProps) {
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && volunteer?.id) {
+      fetchTasks();
+    }
+  }, [isOpen, volunteer?.id]);
+
+  const fetchTasks = async () => {
+    if (!volunteer?.id) return;
+    setLoadingTasks(true);
+    const { data, error } = await supabase
+      .from('task_assignments')
+      .select(`
+        id,
+        target,
+        completed_count,
+        status,
+        task:tasks (
+          title,
+          category,
+          due_date
+        )
+      `)
+      .eq('volunteer_id', volunteer.id);
+
+    if (!error && data) {
+      setTasks(data);
+    }
+    setLoadingTasks(false);
+  };
+
   if (!isOpen || !volunteer) return null;
 
   /* Safe status config lookup */
@@ -172,6 +208,36 @@ export function VolunteerProfileModal({ isOpen, onClose, volunteer }: VolunteerP
                     {volunteer.hours_per_week || 0} hours/week
                   </p>
                 </div>
+              </div>
+            </div>
+
+            {/* Assigned Tasks Section */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
+                <ClipboardList className="h-4 w-4 text-primary" />
+                Assigned Tasks
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {tasks.length > 0 ? tasks.map(assignment => (
+                  <div key={assignment.id} className="p-3 bg-muted/50 rounded-xl border border-border/50">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-foreground line-clamp-1">{assignment.task?.title}</span>
+                      <Badge variant="outline" className="text-[10px] h-4 px-1 capitalize">{assignment.status}</Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase font-semibold">
+                      <span>{assignment.task?.category}</span>
+                      <span>{assignment.completed_count} / {assignment.target}</span>
+                    </div>
+                    <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all"
+                        style={{ width: `${Math.min((assignment.completed_count / (assignment.target || 1)) * 100, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                )) : (
+                  <p className="text-sm text-muted-foreground italic col-span-2">No tasks assigned yet.</p>
+                )}
               </div>
             </div>
 

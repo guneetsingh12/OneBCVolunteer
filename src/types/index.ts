@@ -69,6 +69,33 @@ export interface EventOutcome {
   notes: string;
 }
 
+export interface Task {
+  id: string;
+  title: string;
+  description: string;
+  category: 'Phone Calls' | 'Media' | 'Event Logistics' | 'Others';
+  region: string;
+  total_target: number;
+  current_progress: number;
+  due_date: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskAssignment {
+  id: string;
+  task_id: string;
+  volunteer_id: string;
+  target: number;
+  completed_count: number;
+  status: 'assigned' | 'in_progress' | 'completed';
+  assigned_at: string;
+  task?: Task;
+  volunteer?: Volunteer;
+}
+
 export interface Riding {
   id: string;
   name: string;
@@ -146,6 +173,6 @@ export interface RidingLookupResult {
   source: 'postal_code' | 'address' | 'manual';
 }
 
-export type TabType = 'dashboard' | 'volunteers' | 'events' | 'map' | 'calendar' | 'reports' | 'settings' | 'activity' | 'my-activities' | 'approvals';
+export type TabType = 'dashboard' | 'volunteers' | 'events' | 'tasks' | 'map' | 'calendar' | 'reports' | 'settings' | 'activity' | 'my-activities' | 'approvals';
 
 export type PublicTabType = 'home' | 'events' | 'map' | 'signup';

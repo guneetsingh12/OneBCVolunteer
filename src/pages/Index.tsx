@@ -12,6 +12,7 @@ import { SettingsView } from '@/components/settings/SettingsView';
 import { ActivityLogView } from '@/components/activity/ActivityLogView';
 import { PersonalActivities } from '@/components/activity/PersonalActivities';
 import { LogActivityModal } from '@/components/activity/LogActivityModal';
+import { TasksGrid } from '@/components/tasks/TasksGrid';
 import RoleApprovals from './RoleApprovals';
 import { TabType } from '@/types';
 import { useUser } from '@/contexts/UserContext';
@@ -20,11 +21,13 @@ import { useToast } from '@/hooks/use-toast';
 const Index = () => {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+  const [logModalData, setLogModalData] = useState<any>(null);
   const { isVolunteer, volunteerData } = useUser();
   const { toast } = useToast();
 
   const handleAddNew = () => {
     if (isVolunteer) {
+      setLogModalData(null);
       setIsLogModalOpen(true);
     } else {
       console.log('Add new (Director):', activeTab);
@@ -35,13 +38,29 @@ const Index = () => {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return isVolunteer ? <VolunteerDashboard /> : <Dashboard />;
+        return isVolunteer ? (
+          <VolunteerDashboard
+            onAddActivity={(data) => {
+              setLogModalData(data);
+              setIsLogModalOpen(true);
+            }}
+          />
+        ) : <Dashboard onNavigate={setActiveTab} />;
       case 'my-activities':
-        return isVolunteer ? <PersonalActivities /> : <ActivityLogView />;
+        return isVolunteer ? (
+          <PersonalActivities
+            onAddActivity={() => {
+              setLogModalData(null);
+              setIsLogModalOpen(true);
+            }}
+          />
+        ) : <ActivityLogView />;
       case 'volunteers':
         return <VolunteerTable />;
       case 'events':
         return <EventsGrid />;
+      case 'tasks':
+        return <TasksGrid />;
       case 'map':
         return <RidingMap />;
       case 'calendar':
@@ -55,7 +74,7 @@ const Index = () => {
       case 'approvals':
         return <RoleApprovals />;
       default:
-        return <Dashboard />;
+        return <Dashboard onNavigate={setActiveTab} />;
     }
   };
 
@@ -73,7 +92,11 @@ const Index = () => {
 
       <LogActivityModal
         isOpen={isLogModalOpen}
-        onClose={() => setIsLogModalOpen(false)}
+        onClose={() => {
+          setIsLogModalOpen(false);
+          setLogModalData(null);
+        }}
+        initialData={logModalData}
         onSuccess={() => {
           window.location.reload();
         }}

@@ -6,7 +6,8 @@ import {
     Phone,
     MessageSquare,
     Calendar,
-    CheckCircle2
+    CheckCircle2,
+    ClipboardList
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,9 +20,15 @@ interface LogActivityModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSuccess: () => void;
+    initialData?: {
+        taskId?: string;
+        assignmentId?: string;
+        category?: string;
+        title?: string;
+    };
 }
 
-export function LogActivityModal({ isOpen, onClose, onSuccess }: LogActivityModalProps) {
+export function LogActivityModal({ isOpen, onClose, onSuccess, initialData }: LogActivityModalProps) {
     const { volunteerData, refreshVolunteerData } = useUser();
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
@@ -31,6 +38,16 @@ export function LogActivityModal({ isOpen, onClose, onSuccess }: LogActivityModa
     const [doorsKnocked, setDoorsKnocked] = useState('0');
     const [callsMade, setCallsMade] = useState('0');
     const [notes, setNotes] = useState('');
+
+    // Reset or set initial data when modal opens
+    useState(() => {
+        if (initialData?.category) {
+            const cat = initialData.category.toLowerCase();
+            if (cat.includes('phone')) setActivityType('phone_bank');
+            else if (cat.includes('logistics')) setActivityType('office');
+            else if (cat.includes('media')) setActivityType('other');
+        }
+    });
 
     if (!isOpen) return null;
 
@@ -49,7 +66,7 @@ export function LogActivityModal({ isOpen, onClose, onSuccess }: LogActivityModa
         setLoading(true);
         try {
             console.log('[Activity] Attempting to log activity for:', volunteerData.id);
-            const { error: insertError } = await supabase
+            const { data: activityData, error: insertError } = await supabase
                 .from('activities')
                 .insert({
                     volunteer_id: volunteerData.id,
@@ -57,11 +74,36 @@ export function LogActivityModal({ isOpen, onClose, onSuccess }: LogActivityModa
                     hours_spent: parseFloat(hoursSpent),
                     doors_knocked: parseInt(doorsKnocked),
                     calls_made: parseInt(callsMade),
-                    notes,
+                    notes: initialData?.taskId ? `[Task: ${initialData.title}] ${notes}` : notes,
                     activity_date: new Date().toISOString().split('T')[0]
-                });
+                })
+                .select()
+                .single();
 
             if (insertError) throw insertError;
+
+            // If this activity is linked to a task, update the task progress
+            if (initialData?.assignmentId) {
+                const increment = activityType === 'door_knock' ? parseInt(doorsKnocked) :
+                    activityType === 'phone_bank' ? parseInt(callsMade) : 1;
+
+                // Fetch current completed count
+                const { data: currentAssign } = await supabase
+                    .from('task_assignments')
+                    .select('completed_count')
+                    .eq('id', initialData.assignmentId)
+                    .single();
+
+                const newCount = (currentAssign?.completed_count || 0) + increment;
+
+                await supabase
+                    .from('task_assignments')
+                    .update({
+                        completed_count: newCount,
+                        status: 'in_progress'
+                    })
+                    .eq('id', initialData.assignmentId);
+            }
 
             // Update volunteer aggregates
             // Using parseFloat/parseInt to ensure types are correct for the DB
@@ -121,7 +163,15 @@ export function LogActivityModal({ isOpen, onClose, onSuccess }: LogActivityModa
 
             <div className="relative w-full max-w-lg bg-card rounded-2xl shadow-xl border border-border animate-scale-in">
                 <div className="flex items-center justify-between p-6 border-b border-border">
-                    <h2 className="text-xl font-bold text-foreground">Log Your Activity</h2>
+                    <div>
+                        <h2 className="text-xl font-bold text-foreground">Log Your Activity</h2>
+                        {initialData?.title && (
+                            <p className="text-xs text-primary font-semibold flex items-center gap-1 mt-1">
+                                <ClipboardList className="h-3 w-3" />
+                                Linking to: {initialData.title}
+                            </p>
+                        )}
+                    </div>
                     <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full">
                         <X className="h-5 w-5" />
                     </Button>

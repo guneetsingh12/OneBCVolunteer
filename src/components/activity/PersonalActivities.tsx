@@ -23,7 +23,11 @@ interface Activity {
     created_at: string;
 }
 
-export function PersonalActivities() {
+interface PersonalActivitiesProps {
+    onAddActivity?: (data?: any) => void;
+}
+
+export function PersonalActivities({ onAddActivity }: PersonalActivitiesProps) {
     const { volunteerData } = useUser();
     const [activities, setActivities] = useState<Activity[]>([]);
     const [loading, setLoading] = useState(true);
@@ -124,7 +128,7 @@ export function PersonalActivities() {
                         <div className="text-center py-12">
                             <ActivityIcon className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
                             <p className="text-muted-foreground">You haven't logged any activities yet.</p>
-                            <Button variant="link" color="primary">Start your first activity</Button>
+                            <Button variant="link" color="primary" onClick={onAddActivity}>Start your first activity</Button>
                         </div>
                     )}
                 </div>

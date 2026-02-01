@@ -12,6 +12,7 @@ const tabTitles: Record<TabType, { title: string; subtitle: string }> = {
   dashboard: { title: 'Dashboard', subtitle: 'Overview of your impact' },
   volunteers: { title: 'Volunteers', subtitle: 'Manage your volunteer network' },
   events: { title: 'Events', subtitle: 'Campaign activities and engagements' },
+  tasks: { title: 'Tasks', subtitle: 'Assign and monitor volunteer targets' },
   map: { title: 'Riding Map', subtitle: 'Geographic view of electoral districts' },
   calendar: { title: 'Calendar', subtitle: 'Schedule and upcoming activities' },
   reports: { title: 'Reports', subtitle: 'Analytics and insights' },

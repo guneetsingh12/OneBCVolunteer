@@ -35,6 +35,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
     { id: 'approvals' as TabType, label: 'Role Requests', icon: ShieldCheck, hidden: !isDirector },
     { id: 'my-activities' as TabType, label: 'My Activities', icon: ClipboardList, show: isVolunteer },
     { id: 'events' as TabType, label: 'Events', icon: Calendar },
+    { id: 'tasks' as TabType, label: 'Tasks', icon: ClipboardList },
     { id: 'map' as TabType, label: 'Riding Map', icon: Map, hidden: isVolunteer },
     { id: 'calendar' as TabType, label: 'Calendar', icon: CalendarDays },
     { id: 'reports' as TabType, label: 'Reports', icon: BarChart3, hidden: isVolunteer },
